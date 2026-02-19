@@ -1,0 +1,51 @@
+# app/utils/config.py
+import os
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Environment and project settings."""
+
+    # -------------------------
+    # API Keys
+    # -------------------------
+    GOOGLE_API_KEY: str
+    GROQ_API_KEY: str
+    NCBI_API_KEY: str
+    NCBI_EMAIL: str
+
+    # -------------------------
+    # LangChain Tracing
+    # -------------------------
+    LANGCHAIN_TRACING_V2: bool = True
+    LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
+    LANGCHAIN_API_KEY: str
+    LANGCHAIN_PROJECT: str = "AuraQuery-Dev"
+
+    # -------------------------
+    # Project Paths
+    # -------------------------
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
+    DATA_DIR: Path = BASE_DIR / "data"
+    RAW_DATA_DIR: Path = DATA_DIR / "raw"
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore extra env vars not defined here
+
+    # -------------------------
+    # Utility
+    # -------------------------
+    def create_dirs(self):
+        """Ensure all necessary directories exist."""
+        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# -------------------------
+# Singleton instance
+# -------------------------
+settings = Settings()
+settings.create_dirs()
