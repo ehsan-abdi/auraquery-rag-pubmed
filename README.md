@@ -1,5 +1,5 @@
 # AuraQuery  
-### Production-Ready RAG System for PubMed Open-Access Medical Literature
+### RAG-based ChatBot for PubMed Open-Access Medical Literature
 
 AuraQuery is a modular, production-grade Retrieval-Augmented Generation (RAG) system designed to query and reason over open-access PubMed Central (PMC) medical literature.
 
@@ -44,12 +44,12 @@ AuraQuery uses a performance-optimized dual-index retrieval system:
 
 ## 🔄 Retrieval Flow
 
-→ Query
-→ Abstract Index
-→ Select Top N Relevant Papers
-→ Retrieve Body Chunks (from selected papers only)
-→ Feed into LLM
-→ Generate Answer
+\n→ Query
+\n→ Abstract Index
+\n→ Select Top N Relevant Papers
+\n→ Retrieve Body Chunks (from selected papers only)
+\n→ Feed into LLM
+\n→ Generate Answer
 
 This architecture improves:
 
@@ -63,18 +63,18 @@ This architecture improves:
 ## 🏗 Project Structure
 
 AuraQuery/
-├── app/
-│   ├── core/          # Business logic (parsing, ingestion, orchestration)
-│   ├── db/            # NCBI client & storage logic
-│   ├── api/           # Future FastAPI endpoints
-│   └── utils/         # Config, logging, helpers
-├── data/
-│   └── raw/           # Ingested PubMed JSON files (ignored in Git)
-├── scripts/           # Batch ingestion scripts
-├── tests/             # Unit and integration tests
-├── .env               # API keys (not committed)
-├── requirements.txt
-└── README.md
+\n├── app/
+\n│   ├── core/          # Business logic (parsing, ingestion, orchestration)
+\n│   ├── db/            # NCBI client & storage logic
+\n│   ├── api/           # Future FastAPI endpoints
+\n│   └── utils/         # Config, logging, helpers
+\n├── data/
+\n│   └── raw/           # Ingested PubMed JSON files (ignored in Git)
+\n├── scripts/           # Batch ingestion scripts
+\n├── tests/             # Unit and integration tests
+\n├── .env               # API keys (not committed)
+\n├── requirements.txt
+\n└── README.md
 
 ---
 
@@ -128,21 +128,27 @@ cd auraquery-rag-pubmed
 
 #### Create a virtual environment:
 
+```bash
 python -m venv venv
 source venv/bin/activate  # macOS/Linux
 venv\Scripts\activate     # Windows
+```
 
 #### Install dependencies:
 
+```bash
 pip install -r requirements.txt
+```
 
 #### Create a .env file in the project root:
 
+```bash
 GOOGLE_API_KEY=
 GROQ_API_KEY=
 NCBI_API_KEY=
 NCBI_EMAIL=
 LANGCHAIN_API_KEY=
+```
 
 ---
 
@@ -150,11 +156,15 @@ LANGCHAIN_API_KEY=
 
 #### To batch ingest open-access HHT papers:
 
+```bash
 python scripts/batch_ingest_hht.py
+```
 
 #### Ingested JSON files will be stored in:
 
+```bash
 data/raw/
+```
 
 ---
 
