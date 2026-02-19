@@ -44,17 +44,14 @@ AuraQuery uses a performance-optimized dual-index retrieval system:
 
 ## 🔄 Retrieval Flow
 
+```text
 → Query
-
 → Abstract Index
-
 → Select Top N Relevant Papers
-
 → Retrieve Body Chunks (from selected papers only)
-
 → Feed into LLM
-
 → Generate Answer
+```
 
 This architecture improves:
 
@@ -67,30 +64,21 @@ This architecture improves:
 
 ## 🏗 Project Structure
 
+```text
 AuraQuery/
 ├── app/
-
 │   ├── core/          # Business logic (parsing, ingestion, orchestration)
-
 │   ├── db/            # NCBI client & storage logic
-
 │   ├── api/           # Future FastAPI endpoints
-
 │   └── utils/         # Config, logging, helpers
-
 ├── data/
-
 │   └── raw/           # Ingested PubMed JSON files (ignored in Git)
-
 ├── scripts/           # Batch ingestion scripts
-
 ├── tests/             # Unit and integration tests
-
 ├── .env               # API keys (not committed)
-
 ├── requirements.txt
-
 └── README.md
+```
 
 ---
 
