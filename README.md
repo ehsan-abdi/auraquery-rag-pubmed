@@ -72,8 +72,9 @@ AuraQuery/
 │   ├── api/           # Future FastAPI endpoints
 │   └── utils/         # Config, logging, helpers
 ├── data/
-│   └── raw/           # Ingested PubMed JSON files (ignored in Git)
-├── scripts/           # Batch ingestion scripts
+│   ├── raw/           # Ingested PubMed JSON files (ignored in Git)
+│   └── processed/     # Chunked and metadata-enriched JSONs (ignored in Git)
+├── scripts/           # Batch ingestion & chunking scripts
 ├── tests/             # Unit and integration tests
 ├── .env               # API keys (not committed)
 ├── requirements.txt
@@ -156,18 +157,28 @@ LANGCHAIN_API_KEY=
 
 ---
 
-## 📥 Ingesting Open-Access Literature
+## 📥 Ingestion & Processing
 
-#### To batch ingest open-access HHT papers:
+#### 1. To batch ingest open-access HHT papers:
 
 ```bash
 python scripts/batch_ingest_hht.py
 ```
 
-#### Ingested JSON files will be stored in:
+Ingested JSON files will be stored in:
+```bash
+data/raw/hht/
+```
+
+#### 2. To process and chunk the ingested articles:
 
 ```bash
-data/raw/
+python scripts/run_chunking.py --folder hht
+```
+
+This will run the two-layer indexing strategy, chunking by markdown headers and text overlap, saving final output to:
+```bash
+data/processed/hht/
 ```
 
 ---

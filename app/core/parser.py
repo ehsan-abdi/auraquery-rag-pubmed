@@ -19,9 +19,7 @@ class ArticleMetadata(BaseModel):
     content: str  # The actual text (Abstract or Body)
 
 
-class NCBIParser:
-    @staticmethod
-    def parse_medline(article_xml: Dict, content_type: str = "abstract") -> Optional[ArticleMetadata]:
+def parse_medline(article_xml: Dict, content_type: str = "abstract") -> Optional[ArticleMetadata]:
         try:
             citation = article_xml.get("MedlineCitation", {})
             article = citation.get("Article", {})
@@ -65,5 +63,4 @@ class NCBIParser:
             return None
 
 
-# Singleton
-parser = NCBIParser()
+# end of file

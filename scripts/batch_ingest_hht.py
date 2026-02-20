@@ -8,7 +8,7 @@ setup_logging(level="INFO")
 logger = logging.getLogger(__name__)
 
 # ------------- CONFIG -------------
-KEYWORDS = ["Hereditary Hemorrhagic Telangiectasia"]
+KEYWORDS = ["Osler-Weber-Rendu", "Osler Weber Rendu", "Hereditary Hemorrhagic Telangiectasia"]
 BATCH_SIZE = 50
 DELAY_BETWEEN_BATCHES = 0.3  # seconds
 # ----------------------------------
@@ -18,7 +18,7 @@ def run_ingestion_for_pmids(pmids):
     """
     Ingest only a list of PMIDs, reusing core.ingestion logic.
     """
-    run_ingestion(keywords=[], limit=0, pmids=pmids)
+    run_ingestion(keywords=[], limit=0, pmids=pmids, folder_name="hht")
 
 
 def main():

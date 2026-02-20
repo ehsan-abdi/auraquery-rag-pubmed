@@ -1,5 +1,7 @@
 import logging
-from typing import List, Dict
+import http.client
+import urllib.error
+from typing import List, Dict, Optional
 from Bio import Entrez
 from app.utils.config import settings
 
@@ -35,8 +37,17 @@ class NCBIClient:
             pmids = record.get("IdList", [])
             logger.info(f"Found {len(pmids)} PMIDs in this batch.")
             return pmids
+        except urllib.error.HTTPError as e:
+            logger.error(f"HTTPError during NCBI search (Code {e.code}): {e.reason}")
+            return []
+        except urllib.error.URLError as e:
+            logger.error(f"URLError during NCBI search: {e.reason}")
+            return []
+        except http.client.IncompleteRead as e:
+            logger.error(f"IncompleteRead during NCBI search: {e}")
+            return []
         except Exception as e:
-            logger.error(f"Error during NCBI search: {e}")
+            logger.error(f"Unexpected error during NCBI search: {e}")
             return []
 
     # def search_pmids(self, query: str, max_results: int = 10) -> List[str]:
@@ -83,41 +94,72 @@ class NCBIClient:
 
             # Entrez.read returns a MedlineCitation or PubmedArticle list
             return records.get("PubmedArticle", [])
+        except urllib.error.HTTPError as e:
+            logger.error(f"HTTPError fetching records (Code {e.code}): {e.reason}")
+            return []
         except Exception as e:
-            logger.error(f"Error fetching full records: {e}")
+            logger.error(f"Unexpected error fetching full records: {e}")
             return []
 
-    def fetch_full_text(self, pmid: str) -> str:
-        """Fetches full text from PMC."""
+    def fetch_pmc_links(self, pmids: List[str]) -> Dict[str, str]:
+        """
+        Takes a list of PMIDs, performs a single batched elink query,
+        and returns a dictionary mapping PMID -> PMCID.
+        """
+        if not pmids:
+            return {}
+            
+        logger.info(f"Fetching PMC links for {len(pmids)} PMIDs in batch...")
+        pmid_to_pmcid = {}
+        
         try:
-            # 1. Convert PMID to PMCID
-            # We specifically look for the 'pubmed_pmc' link
-            link_handle = Entrez.elink(dbfrom="pubmed", db="pmc", id=pmid)
+            link_handle = Entrez.elink(dbfrom="pubmed", db="pmc", id=pmids)
             link_results = Entrez.read(link_handle)
             link_handle.close()
+            
+            for result in link_results:
+                pmid = result.get("IdList", [])
+                if not pmid:
+                    continue
+                pmid = pmid[0]
+                
+                link_sets = result.get("LinkSetDb", [])
+                if not link_sets:
+                    continue
+                    
+                links = link_sets[0].get("Link", [])
+                if not links:
+                    continue
+                    
+                pmc_id = links[0].get("Id")
+                if pmc_id:
+                    pmid_to_pmcid[pmid] = pmc_id
+                    
+            logger.info(f"Successfully mapped {len(pmid_to_pmcid)} PMIDs to PMCIDs.")
+            return pmid_to_pmcid
+            
+        except urllib.error.HTTPError as e:
+            logger.error(f"HTTPError in eLink batch (Code {e.code}): {e.reason}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error fetching PMC links: {e}")
+            return {}
 
-            # Check if any links to PMC exist
-            if not link_results[0]["LinkSetDb"]:
-                logger.warning(
-                    f"No PMC link found for PMID: {pmid} (Paper might be behind a paywall)")
-                return ""
-
-            # Extract the actual PMCID
-            links = link_results[0]["LinkSetDb"][0]["Link"]
-            pmcid = links[0]["Id"]
-
-            logger.info(
-                f"Found PMCID: {pmcid} for PMID: {pmid}. Fetching XML...")
-
-            # 2. Fetch full text XML using the PMCID
+    def fetch_full_text(self, pmcid: str) -> str:
+        """Fetches full text XML from PMC using PMCID."""
+        try:
+            logger.debug(f"Fetching XML for PMCID: {pmcid}")
             fetch_handle = Entrez.efetch(
                 db="pmc", id=pmcid, rettype="xml", retmode="text")
             raw_xml = fetch_handle.read()
             fetch_handle.close()
 
             return raw_xml
+        except urllib.error.HTTPError as e:
+            logger.error(f"HTTPError fetching full text for {pmcid} (Code {e.code}): {e.reason}")
+            return ""
         except Exception as e:
-            logger.error(f"Full text fetch failed for {pmid}: {str(e)}")
+            logger.error(f"Full text fetch failed for {pmcid}: {str(e)}")
             return ""
 
     def get_total_hits(self, query: str) -> int:
