@@ -2,126 +2,198 @@
 marp: true
 theme: default
 paginate: true
-header: "**AuraQuery**: Biomedical Multi-Agent RAG Architecture"
-footer: "Confidential - Internal Architecture Review"
+header: "**AuraQuery**: Building a Biomedical Multi-Agent RAG"
+footer: "Educational Architecture Review"
 style: |
-  section {
-    font-size: 28px;
-  }
-  h1 {
-    color: #2c3e50;
-  }
-  h2 {
-    color: #34495e;
-  }
+  section { font-size: 24px; }
+  h1 { color: #2c3e50; font-size: 40px; margin-bottom: 20px;}
+  h2 { color: #34495e; font-size: 32px; margin-bottom: 15px;}
+  h3 { color: #2980b9; font-size: 24px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th { background-color: #ecf0f1; padding: 10px; text-align: left; }
+  td { padding: 10px; border-bottom: 1px solid #bdc3c7; }
+  .mermaid { background: white; padding: 10px; border-radius: 8px; text-align: center; }
 ---
 
-# 🧠 AuraQuery Architecture Review
-## Production-Grade Biomedical RAG Chatbot
+# 📖 The AuraQuery Journey
+## From Raw Medical Papers to an Intelligent RAG Chatbot
 
-**Objective:**
-Build an intelligent, highly accurate conversational agent that reasons strictly over verified, open-access medical literature.
+**Welcome!** 
+Today, we are walking through the end-to-end journey of building AuraQuery: a specialized, production-grade Retrieval-Augmented Generation (RAG) system.
 
-**Key Challenges Overcome:**
-- LLM Hallucinations in medical data
-- Naive vector search failing on complex clinical terminology
-- Conversational pronouns breaking semantic retrieval
-- Review articles drowning out high-quality primary research (RCTs)
+**Our Objective:**
+To build a system capable of answering profound biomedical questions by exclusively reading the **PubMed Open Access** literature.
 
----
-
-# 🏗️ High-Level System Architecture
-
-AuraQuery operates as a **Multi-Agent** pipeline where distinct AI components handle specific tasks in a chain.
-
-1. **The Interceptor Agent:** Contextualizes conversational memory.
-2. **The Parser Agent:** Extracts metadata and optimizes biological query syntax.
-3. **The Hybrid Retrieval Engine:** Dual-index vector search & reranking.
-4. **The Synthesizer Agent:** Generates the final, perfectly cited medical response.
-
-*Let's break down each step.*
+*Let's dive into the architectural decisions, trade-offs, and lessons learned along the way.*
 
 ---
 
-# 1️⃣ The Interceptor Agent (Conversational Memory)
+# 1️⃣ The Challenge: PubMed & Biomedical RAG
 
-*Problem:* "What are its side effects?" breaks vector databases because "its" is mathematically invisible.
+### Why PubMed?
+We started with the PubMed Open Access database because it represents the gold standard of verified, peer-reviewed biomedical knowledge. 
 
-**Our Solution: Query Reformulation**
-- Before reaching the database, an LLM evaluates the user's input against the rolling Chat History.
-- **Action:** Resolves pronouns into explicit nouns.
-- **Action:** Extracts specific `PMIDs` if the user refers to "these papers".
-- **Result:** The system never searches for conversational noise.
+### Inherent Challenges:
+- **Lexical Complexity:** LLMs confuse genes (e.g., *APC*) with common nouns.
+- **Review Dominance:** Generic searches return highly-cited, generic review articles rather than cutting-edge, specific Randomized Controlled Trials (RCTs).
+- **Format Chaos:** Downloading an XML paper gives us thousands of lines of unreadable markup, references, and formulas.
 
-*Example:* `What are its side effects?` ➔ `What are the side effects of Bevacizumab in HHT patients?`
-
----
-
-# 2️⃣ The Parser Agent (Intent Optimization)
-
-Once the query is cleanly standalone, the **QueryParser** intercepts it.
-
-- It extracts explicit **Metadata** into a strict JSON schema:
-  - `publication_year`
-  - `first_author_lastname`
-- It optimizes the biological phrasing (e.g., expanding abbreviations like HHT to Hereditary Hemorrhagic Telangiectasia) to maximize BM25 / Vector matching.
-- **Safeguard:** It detects critically ambiguous acronyms and pauses the pipeline to ask the user for clarification before retrieving bad data.
+*We needed a structured way to clean and ingest this chaos.*
 
 ---
 
-# 3️⃣ The Hybrid Retrieval Engine
+# 2️⃣ Data Ingestion & Preprocessing
 
-We completely abandoned standard single-pass vector search for a custom **Two-Stage Pipeline** with **Algorithm Reranking**.
+**Decision:** We adopted a **Two-Tier JSON Strategy** instead of dumping full articles into one massive bucket.
 
-**Stage 1: The Wide Net (Index A)**
-- Searches purely over Article Abstracts to find a pool of Candidate PMIDs.
+| Tier 1: Abstract + Metadata | Tier 2: Full-Text + Metadata |
+| :--- | :--- |
+| **Purpose:** Fast, broad semantic filtering. | **Purpose:** Deep dive into the actual science. |
+| **Size:** 1 JSON file per article abstract. | **Size:** 1 JSON file containing all body sections. |
+| **Why?** It prevents the database from drowning in background noise when searching across thousands of papers. | **Why?** Allows the LLM to read the exact Methods or Results of a paper once we know the paper is relevant. |
 
-**Stage 2: The Deep Dive (Index B)**
-- Strictly filters the body-text database to search *only* within the PMIDs identified in Stage 1.
-
----
-
-# ⚙️ Custom Reranking & Diversity
-
-We built a custom algorithmic reranker to ensure clinical excellence:
-
-*   **Publication Type Weighting:** Automatically boosts Randomized Controlled Trials (RCTs) and Meta-Analyses over basic Case Reports.
-*   **Recency Decay:** Mathematically applies a gentle exponential decay based on `publication_year` to favor modern findings.
-*   **Section Weighting:** Boosts chunks originating from the *Results* or *Conclusions* sections of the XML.
-*   **Diversity Constraint:** Hard-capped at 3 chunks per PMID to mathematically force the LLM to read multiple papers instead of lazily summarizing one long review article.
+**Cleaning Strategy:** We stripped out noisy XML tags and used recursive markdown indicators (`##`) to strictly preserve section headers (e.g., *## Introduction*, *## Results*). This is crucial for later reranking!
 
 ---
 
-# 4️⃣ The Synthesizer Agent (Generation)
+# 3️⃣ Semantic Chunking Strategy
 
-The final step takes the top refined text chunks and passes them to the LLM with an aggressive `temperature=0.0` System Prompt.
+To fit large papers into the LLM context limits, we had to "chunk" the data.
 
-**Strict Mandates:**
-1. **Zero Hallucination:** "I cannot find sufficient evidence" is the required fallback.
-2. **Comprehensive Synthesis:** The LLM must synthesize the diverse chunks, not just summarize the first article.
-3. **Traceable Citations:** Every claim MUST be backed by an inline, Harvard-style citation explicitly including the `[PMID: XXXXXX]`.
+### Our Strategy: Section-Based (Semantic) Chunking
+We didn't just chop text every 500 words. We chunked *semantically* by the `##` section headers. 
+- **Abstracts:** Kept as a single chunk.
+- **Body Text:** Split by section. If a section was still too large, we applied a **Max-Token + 20% Overlap** sliding window.
 
----
+*Average Result:* ~10-15 highly contextualized body chunks per article.
 
-# ☁️ Next Steps: Cloud & User Interface
-
-Our backend AI engine is complete and hardened.
-
-**Phase 5: Cloud Migration**
-- Move local ChromaDB to a managed cloud vector database (e.g., Pinecone or Qdrant).
-- Wrap the Python pipeline in **FastAPI** to expose `/query` and `/chat` endpoints.
-
-**Phase 6: Frontend Development**
-- Build an **Angular** Web Application.
-- Implement session-based chat UI using the FastAPI endpoints.
-- Deploy UI and API servers via Docker.
+```mermaid
+graph LR
+    A[Raw XML Document] --> B(Abstract Chunk)
+    A --> C(Body Chunks)
+    C --> D[## Introduction]
+    C --> E[## Methods]
+    C --> F[## Results]
+```
 
 ---
 
-# 💡 Open Discussion & Questions
+# 4️⃣ Embedding the Knowledge
 
-### Thank You
+Once chunked, text must be translated into numbers (Vectors) so the database can understand meaning rather than just exact spellings.
 
-- Thoughts on the Multi-Agent Flow?
-- Front-End UX considerations?
-- Suggestions for additional Metadata tracking (e.g., Journal Impact Factor)?
+### The Decision: OpenAI `text-embedding-3-small` vs. ColBERT
+
+| Feature | OpenAI `text-embedding-3` (Dense) | ColBERT (Late Interaction / Sparse) |
+| :--- | :--- | :--- |
+| **Cost** | Extremely cheap (&lt;$0.0001 / 1k tokens) | Very computationally expensive |
+| **Speed** | Lightning fast | Slower at scale |
+| **Accuracy** | Good semantic understanding | Unbeatable clinical exact-match accuracy |
+| **Storage** | Small footprint (~1536 dims) | Massive storage required |
+
+**Verdict:** For this experimental stage, we chose OpenAI for speed and cost-efficiency. *(ColBERT remains a powerful upgrade path for the future).*
+
+---
+
+# 5️⃣ The Vector Database (Local ChromaDB)
+
+We needed a place to store our millions of embeddings.
+
+**Our Choice:** Local ChromaDB
+**Pros:** Free, runs entirely on our laptop, instant setup, no cloud credentials required for experimentation.
+
+**Cons / The Missing Feature Challenge:**
+Out of the box, ChromaDB **does not support native Hybrid Search** (combining Dense Vectors with BM25 Keyword Search). In biomedical research, exact keyword matches (e.g., *ACVRL1*) are just as important as semantic meaning.
+
+*This limitation forced us to build a custom, multi-stage retrieval pipeline using LangChain.*
+
+---
+
+# 6️⃣ The AuraQuery Retrieval Pipeline 
+
+Because we lacked native Hybrid Search, we designed a **Multi-Stage Filtering & Reranking Architecture.**
+
+```mermaid
+flowchart TD
+    Q[User Query] --> A(Stage 1: Index A - Abstract Search)
+    A -->|Extracts Top PMIDs| B(Stage 2: Index B - Body Chunk Search)
+    B --> C{Stage 3: Reranking Engine}
+    C --> D[Stage 4: Diversity Filter]
+    D --> E((Final Chunks for LLM))
+```
+
+**Why this matters:** Stage 1 casts a wide net to find the right *papers*. Stage 2 drills deeply into *only* those papers to find the right *paragraphs*.
+
+---
+
+# 6b️⃣ Justifying the Custom Reranker & Diversity
+
+Instead of trusting the raw vector similarity scores, we applied our own biomedical rules:
+
+1. **Publication Type Weighting:** +1.0 for Meta-Analyses and RCTs, +0.3 for Case Reports. This guarantees the highest quality evidence floats to the top.
+2. **Recency Decay:** Applying a math decay function so a 2024 paper scores higher than a 1999 paper, all else being equal.
+3. **Section Boosting:** Chunks from `## Results` or `## Conclusions` get a massive boost over `## Introduction`.
+4. **Diversity Enforcer:** We hard-capped results at **Max 3 chunks per PMID**. This forces the LLM to synthesize an answer from *multiple* authors.
+
+---
+
+# 7️⃣ Conversational Memory (The Architect's Secret)
+
+*The biggest trap in RAG is conversational pronouns. If a user asks a follow-up: "What are its side effects?", the Vector DB will search for "its" and fail.*
+
+### The Two-Level Prompt Engineering Strategy
+
+1. **The Interceptor (Chat History):** An LLM reads the chat history, resolves pronouns, and extracts explicit PMIDs. 
+   - *"What are its side effects?"* ➔ *"What are the side effects of Bevacizumab PMID 123456?"*
+2. **The Parser:** Another LLM optimizes the query syntax and explicitly extracts metadata (e.g., `publication_year: 2024`, `first_author: Shovlin`) to inject directly into ChromaDB filters.
+
+*We implemented this logic using LangChain's PromptTemplates, isolating conversation logic away from mathematical retrieval logic.*
+
+---
+
+# 8️⃣ Answer Generation (The Synthesizer)
+
+The final stage is generating the answer for the user based *only* on the retrieved chunks.
+
+### LLM Choice: `gpt-4o-mini`
+- It is exceptionally fast and cost-effective, yet punches far above its weight for reasoning and formatting.
+
+### Critical Parameter Setting: `Temperature = 0.0`
+- Temperature controls "creativity". In medical literature, creativity is dangerous. By freezing it to `0.0`, we force the LLM to be highly deterministic and glued entirely to the exact source text retrieved.
+- **Top-p:** Left at default (1.0) since a frozen temperature naturally forces it to pick the highest probability token anyway.
+
+---
+
+# ☁️ Looking Ahead: Strategic Next Steps 
+
+The Local Backend architecture is complete. Here is what is coming next:
+
+## 9️⃣ Phase 5: Cloud Database Migration
+- Transitioning from local ChromaDB to a Managed Cloud Vector DB (e.g., Pinecone or Qdrant) for scalable, always-on access.
+
+## 🔟 Phase 6: Web Application Development
+- Wrapping the Python engine in FastAPI.
+- Building a sleek Angular Front-End focusing on UX.
+
+---
+
+# 📈 Phase 7: Analytics & Improvements
+
+## 1️⃣1️⃣ Performance Metrics
+- Implementing frameworks (like RAGAS) to quantitatively measure retrieval precision, context recall, and hallucination rates.
+
+## 1️⃣2️⃣ Future Enhancements
+- Upgrading to ColBERT late-interaction embeddings for exact-match clinical precision.
+- Incorporating Journal Impact Factor into the custom reranking algorithm.
+
+---
+
+# 💬 Thank You! Let's Discuss
+
+### Any questions on:
+- The Multi-Agent Interceptor pattern?
+- Why we prioritized RCTs via Python Reranking instead of Vector Distance?
+- The Two-Tier JSON dataset design?
+
+---
+*Note: To view the flowcharts properly, open this markdown file in a viewer that supports Mermaid.js, or copy the `mermaid` code blocks into https://mermaid.live*
