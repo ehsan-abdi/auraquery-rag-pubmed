@@ -67,14 +67,7 @@ We didn't just chop text every 500 words. We chunked *semantically* by the `##` 
 
 *Average Result:* ~10-15 highly contextualized body chunks per article.
 
-```mermaid
-graph LR
-    A[Raw XML Document] --> B(Abstract Chunk)
-    A --> C(Body Chunks)
-    C --> D[## Introduction]
-    C --> E[## Methods]
-    C --> F[## Results]
-```
+![Semantic Chunking Diagram](https://mermaid.ink/svg/Z3JhcGggTFIKICAgIEFbUmF3IFhNTCBEb2N1bWVudF0gLS0+IEIoQWJzdHJhY3QgQ2h1bmspCiAgICBBIC0tPiBDKEJvZHkgQ2h1bmtzKQogICAgQyAtLT4gRFsjIyBJbnRyb2R1Y3Rpb25dCiAgICBDIC0tPiBFWyMjIE1ldGhvZHNdCiAgICBDIC0tPiBGWyMjIFJlc3VsdHNd)
 
 ---
 
@@ -113,14 +106,7 @@ Out of the box, ChromaDB **does not support native Hybrid Search** (combining De
 
 Because we lacked native Hybrid Search, we designed a **Multi-Stage Filtering & Reranking Architecture.**
 
-```mermaid
-flowchart TD
-    Q[User Query] --> A(Stage 1: Index A - Abstract Search)
-    A -->|Extracts Top PMIDs| B(Stage 2: Index B - Body Chunk Search)
-    B --> C{Stage 3: Reranking Engine}
-    C --> D[Stage 4: Diversity Filter]
-    D --> E((Final Chunks for LLM))
-```
+![Hybrid Search Architecture](https://mermaid.ink/svg/Zmxvd2NoYXJ0IFRECiAgICBRW1VzZXIgUXVlcnldIC0tPiBBKFN0YWdlIDE6IEluZGV4IEEgLSBBYnN0cmFjdCBTZWFyY2gpCiAgICBBIC0tPnxFeHRyYWN0cyBUb3AgUE1JRHN8IEIoU3RhZ2UgMjogSW5kZXggQiAtIEJvZHkgQ2h1bmsgU2VhcmNoKQogICAgQiAtLT4gQ3tTdGFnZSAzOiBSZXJhbmtpbmcgRW5naW5lfQogICAgQyAtLT4gRFtTdGFnZSA0OiBEaXZlcnNpdHkgRmlsdGVyXQogICAgRCAtLT4gRSgoRmluYWwgQ2h1bmtzIGZvciBMTE0pKQ==)
 
 **Why this matters:** Stage 1 casts a wide net to find the right *papers*. Stage 2 drills deeply into *only* those papers to find the right *paragraphs*.
 
