@@ -47,9 +47,8 @@ class AuraChatEngine:
             temperature=0.0 # Strict determinism for reformulation
         )
         
-        # Simulating basic in-memory history for local development.
-        # In production (FastAPI), this will map to Session IDs using RunnableWithMessageHistory.
-        self.chat_history: List[Any] = []
+        # In production (FastAPI), this handles isolated session histories memory locally.
+        self.sessions: Dict[str, List[Any]] = {}
         
         self.reformulation_prompt = ChatPromptTemplate.from_messages([
             ("system", REFORMULATION_SYSTEM_PROMPT),
@@ -57,16 +56,17 @@ class AuraChatEngine:
             ("human", "Rewrite this input to be a standalone query: {input}")
         ])
         
-    def _reformulate_query(self, user_input: str) -> str:
+    def _reformulate_query(self, user_input: str, session_id: str) -> str:
         """Uses the LLM to resolve pronouns and contextualize the user query."""
-        if not self.chat_history:
+        chat_history = self.sessions.get(session_id, [])
+        if not chat_history:
             return user_input # No history to resolve against
             
         logger.info(f"Reformulating query based on history: '{user_input}'")
         chain = self.reformulation_prompt | self.llm
         
         response = chain.invoke({
-            "history": self.chat_history,
+            "history": chat_history,
             "input": user_input
         })
         
@@ -74,7 +74,7 @@ class AuraChatEngine:
         logger.info(f"Rewritten Query: '{rewritten_query}'")
         return rewritten_query
         
-    def chat(self, user_input: str) -> str:
+    def chat(self, user_input: str, session_id: str = "default") -> str:
         """
         The main interaction point for conversational RAG.
         1. Reformulate query
@@ -82,26 +82,30 @@ class AuraChatEngine:
         3. Save history
         4. Return answer
         """
+        if session_id not in self.sessions:
+            self.sessions[session_id] = []
+            
         # 1. Reformulate
-        standalone_query = self._reformulate_query(user_input)
+        standalone_query = self._reformulate_query(user_input, session_id)
         
         # 2. Add human message to history AFTER reformulation
-        self.chat_history.append(HumanMessage(content=user_input))
+        self.sessions[session_id].append(HumanMessage(content=user_input))
         
         # 3. Execute the full Phase 3 QA Chain (Parse -> Retrieve -> Generation)
         # using the perfectly standalone query, so vector search doesn't break.
         answer = self.qa_chain.query(standalone_query)
         
         # 4. Save AI response to history
-        self.chat_history.append(AIMessage(content=answer))
+        self.sessions[session_id].append(AIMessage(content=answer))
         
         # Trim history to prevent context bloat (keep last 6 interactions)
-        if len(self.chat_history) > 12: 
-            self.chat_history = self.chat_history[-12:]
+        if len(self.sessions[session_id]) > 12: 
+            self.sessions[session_id] = self.sessions[session_id][-12:]
             
         return answer
         
-    def clear_history(self):
+    def clear_history(self, session_id: str = "default"):
         """Wipes the current session memory."""
-        self.chat_history = []
-        logger.info("Chat history cleared.")
+        if session_id in self.sessions:
+            self.sessions[session_id] = []
+        logger.info(f"Chat history cleared for session {session_id}.")

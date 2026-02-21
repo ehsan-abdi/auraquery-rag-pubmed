@@ -84,49 +84,65 @@ class AuraRetriever:
         logger.info(f"Retrieval complete. Yielding {len(final_chunks)} perfectly curated chunks.")
         return final_chunks
 
-    def _build_chroma_filter(self, parsed_query: ParsedQuery) -> dict:
-        """Translates the Pydantic MetadataFilters into a ChromaDB-compliant dict."""
+    def _build_qdrant_filter(self, parsed_query: ParsedQuery):
+        """Translates the Pydantic MetadataFilters into a Qdrant-compliant models.Filter object."""
+        from qdrant_client.http import models
         if not parsed_query.metadata_filters:
-            return {}
+            return None
             
-        filters = {}
+        must_conditions = []
         meta = parsed_query.metadata_filters
         
         if meta.publication_year:
-            # Note: in chunking we saved it as 'pub_year'
-            filters["pub_year"] = meta.publication_year
+            must_conditions.append(
+                models.FieldCondition(
+                    key="metadata.pub_year",
+                    match=models.MatchValue(value=meta.publication_year)
+                )
+            )
         if meta.first_author_lastname:
-            # Preserve exact casing from the LLM (e.g. for Álvarez-Hernández or MacDonald)
-            filters["first_author_lastname"] = meta.first_author_lastname
+            must_conditions.append(
+                models.FieldCondition(
+                    key="metadata.first_author_lastname",
+                    match=models.MatchValue(value=meta.first_author_lastname)
+                )
+            )
         if meta.is_human is not None:
-            filters["is_human"] = meta.is_human
+            must_conditions.append(
+                models.FieldCondition(
+                    key="metadata.is_human",
+                    match=models.MatchValue(value=meta.is_human)
+                )
+            )
         if meta.is_animal is not None:
-            filters["is_animal"] = meta.is_animal
-        
-        # We can't easily filter list fields like mesh_major_terms in Chroma via direct match
-        # if they were stringified, but we'll stick to scalars.
-        return filters
+            must_conditions.append(
+                models.FieldCondition(
+                    key="metadata.is_animal",
+                    match=models.MatchValue(value=meta.is_animal)
+                )
+            )
+            
+        if not must_conditions:
+            return None
+            
+        return models.Filter(must=must_conditions)
 
     def _stage_1_abstract_search(self, search_term: str, parsed_query: ParsedQuery) -> List[str]:
         """Performs Dense Search on Index A (Abstracts) to derive candidate PMIDs."""
         logger.info(f"Executing Stage 1 Search on Index A. Term: '{search_term}'")
         
         # Build strict filters if extracted by the LLM
-        stage_1_filter = self._build_chroma_filter(parsed_query)
-        if stage_1_filter:
-            logger.info(f"Applying strict Stage 1 ChromaDB metadata filter: {stage_1_filter}")
-            
+        stage_1_filter = self._build_qdrant_filter(parsed_query)
         kwargs = {"query": search_term, "k": self.abstract_top_n * 2}
-        if stage_1_filter:
-            if len(stage_1_filter) == 1:
-                kwargs["filter"] = stage_1_filter
-            else:
-                kwargs["filter"] = {"$and": [{k: v} for k, v in stage_1_filter.items()]}
         
+        if stage_1_filter:
+            logger.info(f"Applying strict Stage 1 Qdrant metadata filter.")
+            kwargs["filter"] = stage_1_filter
+            
         try:
             results = self.vector_store.collection_a.similarity_search_with_relevance_scores(**kwargs)
         except Exception as e:
-            logger.error(f"Stage 1 search failed with filter {stage_1_filter}: {e}")
+            logger.error(f"Stage 1 search failed with filter: {e}")
             # Failsafe: drop the filter and try again if it was too restrictive / threw an error
             results = self.vector_store.collection_a.similarity_search_with_relevance_scores(
                 query=search_term, k=self.abstract_top_n * 2
@@ -145,22 +161,27 @@ class AuraRetriever:
         return unique_pmids
 
     def _stage_2_chunk_search(self, search_term: str, candidate_pmids: List[str]) -> List[Tuple[Document, float]]:
-        """Restricts deep body search strictly to the subset of candidate PMIDs."""
+        """Restricts deep body search strictly to the subset of candidate PMIDs using Qdrant MatchAny."""
+        from qdrant_client.http import models
         logger.info("Executing Stage 2 Deep Search on Index B.")
         
-        filter_dict = {
-            "pmid": {"$in": candidate_pmids}
-        }
+        # We need to filter chunks exactly where `metadata.pmid` matches ANY of our candidates
+        pmid_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.pmid",
+                    match=models.MatchAny(any=candidate_pmids)
+                )
+            ]
+        )
         
-        # Dense search over isolated chunks
+        # QdrantVectorStore handles the models.Filter natively
         dense_results = self.vector_store.collection_b.similarity_search_with_relevance_scores(
             query=search_term,
             k=self.chunk_top_k,
-            filter=filter_dict
+            filter=pmid_filter
         )
         
-        # Optional: In-Memory BM25 RRF could be injected here for pure accuracy.
-        # For now, we utilize the dense scores as the base.
         return dense_results
 
     def _stage_3_rerank(self, scored_docs: List[Tuple[Document, float]], parsed_query: ParsedQuery) -> List[Tuple[Document, float]]:

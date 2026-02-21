@@ -153,6 +153,8 @@ GROQ_API_KEY=
 NCBI_API_KEY=
 NCBI_EMAIL=
 LANGCHAIN_API_KEY=
+QDRANT_URL=
+QDRANT_API_KEY=
 ```
 
 ---
@@ -214,9 +216,32 @@ This engine utilizes a **Query Reformulator** to intercept conversational pronou
 ### Phase 3 Hybrid Retrieval Architecture
 Our custom engine uses **True Hybrid Search**:
 1. **Abstract Layer (Index A):** A wide-net dense search over thousands of abstracts to derive candidate PMIDs.
-2. **Body Chunk Layer (Index B):** A restrictive dense search drilling deeply into the isolated PMIDs.
+2. **Body Chunk Layer (Index B):** A restrictive dense search drilling deeply into the isolated PMIDs utilizing strict keyword filtering.
 3. **Custom Python Reranker:** We linearly boost chunks originating from **Meta-Analyses** and **RCTs**, and boost sections discussing **Results** or **Conclusions**.
 4. **Diversity Guardrail:** Results are strictly capped at **3 chunks per PMID** to force multi-source synthesis and prevent single-review dominance.
+
+---
+
+## ☁️ Qdrant Cloud & FastAPI Backend
+
+AuraQuery has transitioned from a local terminal script to a production-ready Web API.
+
+### Vector Database Migration (Phase 5)
+All local ChromaDB SQLite instances were migrated to a high-performance **Qdrant Cloud** cluster.
+- Native `MatchAny` LangChain payload schemas
+- Remote REST API retrieval
+- Zero local state dependency for inference
+
+### FastAPI Integration (Phase 6)
+To run the scalable REST backend locally:
+```bash
+uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+You can interact with the RAG pipeline graphically via the auto-generated Swagger UI at `http://localhost:8000/docs`.
+
+**Core Endpoints:**
+- `POST /api/chat`: Submit queries with a specific `session_id` to leverage memory-aware conversational retrieval.
+- `GET /api/health`: Check database integration status.
 
 ---
 
@@ -234,7 +259,8 @@ Our custom engine uses **True Hybrid Search**:
 - [x] Vector store integration (Abstract + Body indices)
 - [x] Retrieval module implementation
 - [x] LLM answer generation chain
-- [ ] FastAPI endpoints
+- [x] Qdrant Cloud Migration
+- [x] FastAPI REST endpoints
 - [ ] Angular frontend interface
 - [ ] Deployment to personal website
 - [ ] CI/CD pipeline

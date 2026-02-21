@@ -8,13 +8,15 @@ class Settings(BaseSettings):
     """Environment and project settings."""
 
     # -------------------------
-    # API Keys
+    # API Keys & Cloud Services
     # -------------------------
     GOOGLE_API_KEY: str
     GROQ_API_KEY: str
     NCBI_API_KEY: str
     NCBI_EMAIL: str
     OPENAI_API_KEY: str
+    QDRANT_URL: str
+    QDRANT_API_KEY: str
 
     # -------------------------
     # LangChain Tracing
