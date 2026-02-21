@@ -1,0 +1,136 @@
+import logging
+from typing import Optional, List
+
+from pydantic import BaseModel, Field
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+
+from app.utils.config import settings
+
+logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------
+# Models
+# -----------------------------------------------------------------------
+class MetadataFilters(BaseModel):
+    """Explicitly defined extractable metadata filters."""
+    publication_year: Optional[int] = Field(default=None)
+    first_author_lastname: Optional[str] = Field(default=None)
+    journal_name: Optional[str] = Field(default=None)
+    mesh_major_terms: Optional[List[str]] = Field(default=None)
+    is_human: Optional[bool] = Field(default=None)
+    is_animal: Optional[bool] = Field(default=None)
+
+class ParsedQuery(BaseModel):
+    """The structured output format enforced by the LLM."""
+    clarification_required: Optional[str] = Field(
+        default=None,
+        description="Populate only if the query is critically ambiguous. Explicitly name the ambiguous term and offer interpretations. If NO critical ambiguity exists, this field MUST be null."
+    )
+    optimized_query: Optional[str] = Field(
+        default=None,
+        description="The expanded hybrid BM25 query (max 120 words). Populate ONLY if clarification is NOT required."
+    )
+    metadata_filters: Optional[MetadataFilters] = Field(
+        default=None,
+        description="Extracted metadata filters. Do not hallucinate fields."
+    )
+
+# -----------------------------------------------------------------------
+# System Prompt
+# -----------------------------------------------------------------------
+PARSER_SYSTEM_PROMPT = """You are a biomedical query optimization system for hybrid retrieval (BM25 + dense embedding search) over vectorized chunks of PubMed articles related to {medical_subject}.
+Your task is to transform a user query into an optimized retrieval query OR request clarification if the query is critically ambiguous.
+
+You must output your response EXACTLY matching the provided JSON schema. Do not output anything outside of the JSON.
+
+PRIMARY OBJECTIVE
+Produce a retrieval-optimized query that:
+* Maximizes keyword match performance (BM25)
+* Preserves semantic meaning for embedding retrieval
+* Is concise enough for chunk-level matching
+* Avoids unnecessary verbosity or over-expansion
+
+STEP 1 — DETECT CRITICAL AMBIGUITY
+Evaluate whether the query contains critical ambiguity that prevents accurate retrieval.
+Critical ambiguity includes:
+* Likely misspelled gene/protein names
+* Ambiguous gene symbols (e.g., short acronyms with multiple meanings)
+* Multiple diseases with similar names where intent is unclear
+
+Do NOT trigger clarification for minor typos, obvious disease names, or non-technical phrasing.
+If ambiguity exists, populate the `clarification_required` JSON field with a concise explanation of what needs clarification (e.g., "The term 'APC' could refer to the APC gene or antigen-presenting cells. Please clarify.") and leave all other fields null.
+
+STEP 2 — QUERY OPTIMIZATION RULES (If no ambiguity)
+1. Clarify and Standardize
+* Replace vague language with precise biomedical terminology.
+* Expand important acronyms once (e.g., “systemic lupus erythematosus (SLE)”).
+* Use canonical gene symbols.
+
+2. Controlled Synonym Expansion
+* Add high-value synonyms for lexical matching.
+* Do NOT add loosely related terms or stack excessive keywords. 
+* Include full disease names, drug classes, and singular/plural terms.
+
+3. Chunk-Aware Optimization
+* Keep the optimized query under 120 words.
+* Prefer dense biomedical noun phrases and preserve PICO elements.
+* Remove conversational filler, personal context, and subjective commentary.
+
+STEP 3 — METADATA EXTRACTION
+Analyze the query to see if it explicitly implies filterable metadata. If so, populate the `metadata_filters` JSON object.
+Allowed metadata fields:
+* publication_year (integer or string range)
+* first_author_lastname (string)
+* journal_name (string)
+* mesh_major_terms (list of strings)
+* is_human (boolean)
+* is_animal (boolean)
+
+Do NOT hallucinate metadata. Only include explicitly supported filters if strongly implied by the user.
+
+ADDITIONAL RULES
+* Do not change clinical scope.
+* Do not narrow or broaden the research question.
+* If a gene name is clearly incorrect but confidently correctable, silently fix it without triggering clarification.
+"""
+
+# -----------------------------------------------------------------------
+# Core Logic
+# -----------------------------------------------------------------------
+class QueryParser:
+    """
+    Parses and optimizes raw user queries into structured retrieval objects
+    using an LLM. Handles ambiguity detection and metadata extraction.
+    """
+
+    def __init__(self, model_name: str = "gpt-4o-mini", medical_subject: str = "Hereditary Hemorrhagic Telangiectasia (HHT)"):
+        self.medical_subject = medical_subject
+        # Initialize the LLM and bind it to our strict Pydantic output schema
+        self.llm = ChatOpenAI(
+            model=model_name,
+            api_key=settings.OPENAI_API_KEY,
+            temperature=0.0 # Strict determinism for parsing
+        ).with_structured_output(ParsedQuery)
+        
+        self.prompt_template = ChatPromptTemplate.from_messages([
+            ("system", PARSER_SYSTEM_PROMPT),
+            ("human", "Raw User Query: {query}")
+        ])
+        
+        # LCEL Chain
+        self.chain = self.prompt_template | self.llm
+
+    def parse(self, query: str) -> ParsedQuery:
+        """Runs the query parser chain."""
+        logger.info(f"Parsing raw query: '{query}'")
+        try:
+            result = self.chain.invoke({
+                "medical_subject": self.medical_subject,
+                "query": query
+            })
+            return result
+        except Exception as e:
+            logger.error(f"Failed to parse query. Error: {e}")
+            # Failsafe: return the raw query unoptimized if the LLM crashes
+            return ParsedQuery(optimized_query=query)
