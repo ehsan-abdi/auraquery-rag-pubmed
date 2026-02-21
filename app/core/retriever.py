@@ -45,8 +45,6 @@ class AuraRetriever:
 
         if parsed_query.clarification_required:
             logger.warning(f"Ambiguous query detected: {parsed_query.clarification_required}")
-            # If the user asks an ambiguous question, we should ideally bounce this back up to the API.
-            # For the retriever, we will return a fake Document containing the clarification message for the LLM.
             return [Document(
                 page_content=f"System Alert: Do not answer the user's question. Instead, ask them this clarification: {parsed_query.clarification_required}",
                 metadata={"type": "clarification"}
@@ -54,8 +52,19 @@ class AuraRetriever:
             
         search_term = parsed_query.optimized_query or raw_query
         
-        # 2. Stage 1: Candidate Article Retrieval (Index A)
-        candidate_pmids = self._stage_1_abstract_search(search_term, parsed_query)
+        # --- EXPLICIT PMID OVERRIDE ---
+        # If the ChatEngine reformulator injected specific PMIDs into the raw_query, we extract them.
+        # We MUST scan `raw_query` here, because `QueryParser` often strips PMIDs out of `optimized_query`.
+        import re
+        extracted_pmids = re.findall(r'PMID:?\s*(\d{7,8})', raw_query, re.IGNORECASE)
+        
+        if extracted_pmids:
+            logger.info(f"Explicit PMIDs detected in query: {extracted_pmids}. Bypassing Stage 1.")
+            candidate_pmids = list(set(extracted_pmids))
+        else:
+            # 2. Stage 1: Candidate Article Retrieval (Index A)
+            candidate_pmids = self._stage_1_abstract_search(search_term, parsed_query)
+            
         if not candidate_pmids:
             logger.warning("No candidate abstracts found. Aborting retrieval.")
             return []

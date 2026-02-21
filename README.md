@@ -196,16 +196,20 @@ data/vectorstore/
 
 ## 🔍 Querying the Knowledge Base
 
-AuraQuery comes with a built-in terminal interface to query your specialized vector database using the advanced hybrid retrieval pipeline and `gpt-4o-mini`.
+AuraQuery comes with two built-in terminal interfaces to query your specialized vector database using the advanced hybrid retrieval pipeline:
 
-Run the CLI tool and provide your clinical question as a string:
+### 1. Single-Shot Queries
+Run the basic CLI tool for isolated clinical questions:
 ```bash
 python scripts/run_query.py "What are the common genetic mutations associated with Hereditary Hemorrhagic Telangiectasia?"
 ```
 
-The AI will output:
-1. **The Parsed Query:** How the LLM interpreted your ambiguity, extracted metadata filters, and expanded your search terms.
-2. **The Output:** A comprehensive, synthesized answer drawn strictly from retrieved context, completely formatted with Harvard-style, PMID-backed citations.
+### 2. Conversational Memory (Phase 4)
+Run the interactive chat engine to engage in multi-turn dialogue with memory:
+```bash
+python scripts/run_chat.py
+```
+This engine utilizes a **Query Reformulator** to intercept conversational pronouns (e.g., "What are its side effects?"), rewrite them into standalone queries by analyzing the chat history, and seamlessly extract and carry over specific PMIDs for highly targeted follow-up retrieval.
 
 ### Phase 3 Hybrid Retrieval Architecture
 Our custom engine uses **True Hybrid Search**:
