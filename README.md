@@ -181,6 +181,17 @@ This will run the two-layer indexing strategy, chunking by markdown headers and 
 data/processed/hht/
 ```
 
+#### 3. To embed the processed chunks into ChromaDB:
+
+```bash
+python scripts/build_vector_store.py --folder hht
+```
+
+This will run the chunks through OpenAI's `text-embedding-3-small` model and save the resulting vectors locally to:
+```bash
+data/vectorstore/
+```
+
 ---
 
 ## 🔒 Production Considerations
@@ -194,14 +205,14 @@ data/processed/hht/
 ---
 
 ## 🛣 Roadmap
-- Vector store integration (Abstract + Body indices)
-- Retrieval module implementation
-- LLM answer generation chain
-- FastAPI endpoints
-- Angular frontend interface
-- Deployment to personal website
-- CI/CD pipeline
-- Docker containerization
+- [x] Vector store integration (Abstract + Body indices)
+- [ ] Retrieval module implementation
+- [ ] LLM answer generation chain
+- [ ] FastAPI endpoints
+- [ ] Angular frontend interface
+- [ ] Deployment to personal website
+- [ ] CI/CD pipeline
+- [ ] Docker containerization
 
 ---
 

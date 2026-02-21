@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str
     NCBI_API_KEY: str
     NCBI_EMAIL: str
+    OPENAI_API_KEY: str
 
     # -------------------------
     # LangChain Tracing
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
     DATA_DIR: Path = BASE_DIR / "data"
     RAW_DATA_DIR: Path = DATA_DIR / "raw"
     PROCESSED_DATA_DIR: Path = DATA_DIR / "processed"
+    CHROMA_DB_DIR: Path = DATA_DIR / "vectorstore"
 
     class Config:
         env_file = ".env"
@@ -44,6 +46,7 @@ class Settings(BaseSettings):
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self.CHROMA_DB_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # -------------------------
