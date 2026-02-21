@@ -1,11 +1,15 @@
 import logging
 from typing import Optional, List
+import warnings
 
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.utils.config import settings
+
+# Suppress harmless Pydantic serialization warnings caused by OpenAI's structured output
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +18,14 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------
 class MetadataFilters(BaseModel):
     """Explicitly defined extractable metadata filters."""
-    publication_year: Optional[int] = Field(default=None)
-    first_author_lastname: Optional[str] = Field(default=None)
+    publication_year: Optional[int] = Field(
+        default=None, 
+        description="The specific 4-digit year. Do NOT guess or infer the year if the user says 'recent' or 'latest'."
+    )
+    first_author_lastname: Optional[str] = Field(
+        default=None, 
+        description="The last name of the *first* author. ONLY populate if the user explicitly asks for the 'first author'. If they just ask for 'papers by [Author]', leave this null."
+    )
     journal_name: Optional[str] = Field(default=None)
     mesh_major_terms: Optional[List[str]] = Field(default=None)
     is_human: Optional[bool] = Field(default=None)
@@ -52,14 +62,17 @@ Produce a retrieval-optimized query that:
 * Avoids unnecessary verbosity or over-expansion
 
 STEP 1 — DETECT CRITICAL AMBIGUITY
-Evaluate whether the query contains critical ambiguity that prevents accurate retrieval.
-Critical ambiguity includes:
-* Likely misspelled gene/protein names
-* Ambiguous gene symbols (e.g., short acronyms with multiple meanings)
-* Multiple diseases with similar names where intent is unclear
+Evaluate whether the query contains critical biomedical ambiguity that completely prevents accurate clinical retrieval.
+Critical ambiguity is STRICTLY limited to:
+* Ambiguous gene symbols/acronyms with multiple distinct meanings
+* Multiple diseases with extremely similar names where clinical intent is unclear
 
-Do NOT trigger clarification for minor typos, obvious disease names, or non-technical phrasing.
-If ambiguity exists, populate the `clarification_required` JSON field with a concise explanation of what needs clarification (e.g., "The term 'APC' could refer to the APC gene or antigen-presenting cells. Please clarify.") and leave all other fields null.
+Do NOT trigger clarification for:
+* Timeframes like "latest," "recent," or "new" (just ignore them or pass them as context).
+* Author names without first names (e.g., "Prof Shovlin"). Assume the user expects a broad search.
+* Non-technical phrasing or vague general intents.
+
+BE EXTREMELY FORGIVING. ONLY populate `clarification_required` if a biomedical term is hopelessly ambiguous (e.g., "The term 'APC' could refer to the APC gene or antigen-presenting cells."). Otherwise, ALWAYS leave it null and proceed to Step 2.
 
 STEP 2 — QUERY OPTIMIZATION RULES (If no ambiguity)
 1. Clarify and Standardize

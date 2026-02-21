@@ -194,6 +194,28 @@ data/vectorstore/
 
 ---
 
+## 🔍 Querying the Knowledge Base
+
+AuraQuery comes with a built-in terminal interface to query your specialized vector database using the advanced hybrid retrieval pipeline and `gpt-4o-mini`.
+
+Run the CLI tool and provide your clinical question as a string:
+```bash
+python scripts/run_query.py "What are the common genetic mutations associated with Hereditary Hemorrhagic Telangiectasia?"
+```
+
+The AI will output:
+1. **The Parsed Query:** How the LLM interpreted your ambiguity, extracted metadata filters, and expanded your search terms.
+2. **The Output:** A comprehensive, synthesized answer drawn strictly from retrieved context, completely formatted with Harvard-style, PMID-backed citations.
+
+### Phase 3 Hybrid Retrieval Architecture
+Our custom engine uses **True Hybrid Search**:
+1. **Abstract Layer (Index A):** A wide-net dense search over thousands of abstracts to derive candidate PMIDs.
+2. **Body Chunk Layer (Index B):** A restrictive dense search drilling deeply into the isolated PMIDs.
+3. **Custom Python Reranker:** We linearly boost chunks originating from **Meta-Analyses** and **RCTs**, and boost sections discussing **Results** or **Conclusions**.
+4. **Diversity Guardrail:** Results are strictly capped at **3 chunks per PMID** to force multi-source synthesis and prevent single-review dominance.
+
+---
+
 ## 🔒 Production Considerations
 
 - Secure API key management via .env
@@ -206,8 +228,8 @@ data/vectorstore/
 
 ## 🛣 Roadmap
 - [x] Vector store integration (Abstract + Body indices)
-- [ ] Retrieval module implementation
-- [ ] LLM answer generation chain
+- [x] Retrieval module implementation
+- [x] LLM answer generation chain
 - [ ] FastAPI endpoints
 - [ ] Angular frontend interface
 - [ ] Deployment to personal website

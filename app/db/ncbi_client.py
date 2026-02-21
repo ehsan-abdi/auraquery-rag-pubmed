@@ -50,26 +50,6 @@ class NCBIClient:
             logger.error(f"Unexpected error during NCBI search: {e}")
             return []
 
-    # def search_pmids(self, query: str, max_results: int = 10) -> List[str]:
-    #     """
-    #     Search PubMed for keywords ORed together.
-    #     Returns a list of PubMed IDs (PMIDs).
-    #     """
-    #     logger.info(f"Searching PubMed with query: {query}")
-
-    #     try:
-    #         handle = Entrez.esearch(
-    #             db="pubmed", term=query, retmax=max_results)
-    #         record = Entrez.read(handle)
-    #         handle.close()
-
-    #         pmids = record.get("IdList", [])
-    #         logger.info(f"Found {len(pmids)} PMIDs.")
-    #         return pmids
-    #     except Exception as e:
-    #         logger.error(f"Error during NCBI search: {e}")
-    #         return []
-
     def fetch_full_records(self, pmids: List[str]) -> List[Dict]:
         """
         Fetch full XML records for a list of PMIDs.

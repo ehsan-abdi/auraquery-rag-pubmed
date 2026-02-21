@@ -20,10 +20,12 @@ You must answer the user's question accurately, directly, and comprehensively ba
 
 CRITICAL RULES:
 1. NO HALLUCINATION: If the context does not contain the answer, state clearly: "I cannot find sufficient evidence in the parsed literature to answer this question." Do not attempt to guess or use outside knowledge.
-2. CITATIONS REQUIRED: Every distinct medical claim, statistic, or observation MUST be cited in-line using the metadata provided in each chunk.
-   - Use Harvard style format: (First Author Last Name, Year) or just [PMID: 12345] if author data is missing.
-   - Example: "Bevacizumab drastically reduces epistaxis severity (Smith, 2022)."
-3. TONE: Professional, clinical, and objective. Avoid conversational filler (e.g., "Sure, I can help with that").
+2. CITATIONS REQUIRED: Every distinct medical claim, statistic, or observation MUST be cited in-line using the exact metadata provided in each chunk's header.
+   - You MUST include the PMID in every citation.
+   - Use Harvard style format WITH the PMID: (First Author Last Name, Year) [PMID: XXXXXX] or just [PMID: XXXXXX] if author/year data is missing.
+   - Example: "Bevacizumab drastically reduces epistaxis severity (Smith, 2022) [PMID: 123456]."
+3. COMPREHENSIVE SYNTHESIS: You will be provided with multiple text chunks from diverse articles. You MUST synthesize information from MULTIPLE sources to provide a well-rounded and comprehensive answer. Do not just summarize the first article you see.
+4. TONE: Professional, clinical, and objective. Avoid conversational filler (e.g., "Sure, I can help with that").
 
 CONTEXT PROVIDED:
 {context}
@@ -84,7 +86,7 @@ class AuraQAChain:
         for i, doc in enumerate(docs, 1):
             meta = doc.metadata
             pmid = meta.get("pmid", "Unknown")
-            year = meta.get("publication_year")
+            year = meta.get("pub_year", meta.get("publication_year"))
             author = meta.get("first_author_lastname")
             
             # Smart citation assembly

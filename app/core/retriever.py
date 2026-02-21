@@ -35,6 +35,14 @@ class AuraRetriever:
         
         # 1. Parse Query
         parsed_query = self.query_parser.parse(raw_query)
+        
+        # Print parsed query to terminal for inspection
+        print("\n" + "-"*60)
+        print("🔍 PARSED QUERY INSPECTION:")
+        for k, v in parsed_query.model_dump().items():
+            print(f"  {k}: {v}")
+        print("-" * 60 + "\n")
+
         if parsed_query.clarification_required:
             logger.warning(f"Ambiguous query detected: {parsed_query.clarification_required}")
             # If the user asks an ambiguous question, we should ideally bounce this back up to the API.
@@ -67,16 +75,53 @@ class AuraRetriever:
         logger.info(f"Retrieval complete. Yielding {len(final_chunks)} perfectly curated chunks.")
         return final_chunks
 
+    def _build_chroma_filter(self, parsed_query: ParsedQuery) -> dict:
+        """Translates the Pydantic MetadataFilters into a ChromaDB-compliant dict."""
+        if not parsed_query.metadata_filters:
+            return {}
+            
+        filters = {}
+        meta = parsed_query.metadata_filters
+        
+        if meta.publication_year:
+            # Note: in chunking we saved it as 'pub_year'
+            filters["pub_year"] = meta.publication_year
+        if meta.first_author_lastname:
+            # Preserve exact casing from the LLM (e.g. for Álvarez-Hernández or MacDonald)
+            filters["first_author_lastname"] = meta.first_author_lastname
+        if meta.is_human is not None:
+            filters["is_human"] = meta.is_human
+        if meta.is_animal is not None:
+            filters["is_animal"] = meta.is_animal
+        
+        # We can't easily filter list fields like mesh_major_terms in Chroma via direct match
+        # if they were stringified, but we'll stick to scalars.
+        return filters
+
     def _stage_1_abstract_search(self, search_term: str, parsed_query: ParsedQuery) -> List[str]:
         """Performs Dense Search on Index A (Abstracts) to derive candidate PMIDs."""
         logger.info(f"Executing Stage 1 Search on Index A. Term: '{search_term}'")
         
-        # Currently, we execute a pure Dense Vector similarity search. 
-        # (True Hybrid Reciprocal Rank Fusion of BM25 + Dense is simulated here by maximizing K)
-        results = self.vector_store.collection_a.similarity_search_with_relevance_scores(
-            query=search_term,
-            k=self.abstract_top_n * 2 # Cast a wide net
-        )
+        # Build strict filters if extracted by the LLM
+        stage_1_filter = self._build_chroma_filter(parsed_query)
+        if stage_1_filter:
+            logger.info(f"Applying strict Stage 1 ChromaDB metadata filter: {stage_1_filter}")
+            
+        kwargs = {"query": search_term, "k": self.abstract_top_n * 2}
+        if stage_1_filter:
+            if len(stage_1_filter) == 1:
+                kwargs["filter"] = stage_1_filter
+            else:
+                kwargs["filter"] = {"$and": [{k: v} for k, v in stage_1_filter.items()]}
+        
+        try:
+            results = self.vector_store.collection_a.similarity_search_with_relevance_scores(**kwargs)
+        except Exception as e:
+            logger.error(f"Stage 1 search failed with filter {stage_1_filter}: {e}")
+            # Failsafe: drop the filter and try again if it was too restrictive / threw an error
+            results = self.vector_store.collection_a.similarity_search_with_relevance_scores(
+                query=search_term, k=self.abstract_top_n * 2
+            )
         
         # Extract unique PMIDs
         unique_pmids = []
@@ -153,13 +198,14 @@ class AuraRetriever:
                 final_score -= 0.5
                 
             # --- RECENCY BOOST ---
-            pub_year = meta.get("publication_year")
+            pub_year = meta.get("pub_year", meta.get("publication_year"))
             if pub_year and pub_year != "Unknown":
                 try:
                     year_diff = current_year - int(pub_year)
                     if year_diff >= 0:
                         import math
-                        recency_weight = 0.5 * math.exp(-year_diff / 8)
+                        # Reduced weight from 0.5 to 0.25 to prevent recent reviews overtaking older high-quality RCTs
+                        recency_weight = 0.25 * math.exp(-year_diff / 8)
                         final_score += recency_weight
                 except ValueError:
                     pass
