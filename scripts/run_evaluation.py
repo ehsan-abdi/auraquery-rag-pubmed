@@ -42,12 +42,13 @@ I will provide you with the JSON abstract/body text of a biomedical article.
 Your task is to generate exactly 3 highly specific, highly diverse questions that a researcher might ask about this topic.
 
 CRITICAL RULES FOR QUESTIONS:
-1. HHT SPECIFICITY: The questions MUST be explicitly related to HHT (Hereditary Hemorrhagic Telangiectasia) or its direct manifestations/treatments (like Epistaxis). If the paper discusses a generic drug (e.g., Bevacizumab for cancer), DO NOT ask about cancer. Ask how the findings relate to HHT.
-2. STATELESSNESS: The questions MUST BE COMPLETELY STANDALONE. 
+1. NO PRE-ASSUMED BIAS: Focus your questions on the core, unique thesis and findings of the specific paper provided. DO NOT fixate on generic HHT treatments (such as Bevacizumab) unless that is the primary, explicit focus of this specific paper. 
+2. HHT SPECIFICITY: The questions MUST be explicitly related to HHT or its direct manifestations/treatments. If a paper discusses a generic concept, specifically ask how it relates to HHT.
+3. STATELESSNESS: The questions MUST BE COMPLETELY STANDALONE. 
    - DO NOT say "In this paper..." or "What did the authors find in this study...".
-   - DO NOT refer to the article itself. The questions should sound like a doctor asking a general knowledge base (e.g., "What is the expected reduction in epistaxis after 3 months of Bevacizumab?").
-3. DIVERSITY: Ensure the 3 questions cover different aspects of the text (e.g., one about methodology, one about specific statistical results, one about the discussion/conclusion).
-4. GROUND TRUTH: Provide the exact, correct answer to your question based strictly on the text provided.
+   - DO NOT refer to the article itself. The questions should sound like a doctor asking a general knowledge base (e.g., "What is the expected reduction in epistaxis after 3 months of anti-angiogenic therapy?").
+4. DIVERSITY: Ensure the 3 questions cover completely different aspects of the text (e.g., one about methodology, one about specific statistical results, one about the discussion/conclusion).
+5. GROUND TRUTH: Provide the exact, correct answer to your question based strictly on the text provided.
 
 Return exactly 3 questions in the specified JSON format.
 """
