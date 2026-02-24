@@ -1,0 +1,22 @@
+# General
+.git/
+.gitignore
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+env/
+.pytest_cache/
+
+# Project Specific (Do not include in backend container)
+frontend/
+data/
+scripts/
+tests/
+AuraQuery_Story_Presentation.md
+AuraQuery_Story_Presentation.pptx
+README.md

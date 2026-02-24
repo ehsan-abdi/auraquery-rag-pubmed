@@ -16,7 +16,7 @@ export interface ChatResponse {
 })
 export class ChatService {
     // Hardcoded for local RAG execution; move to environment.ts for production
-    private apiUrl = 'http://localhost:8000/api';
+    private apiUrl = 'https://auraquery-api-79181789355.us-central1.run.app/api';
 
     constructor(private http: HttpClient) { }
 
