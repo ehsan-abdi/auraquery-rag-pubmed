@@ -25,9 +25,21 @@ $gray-text: #4a5568;
 
     @media (max-width: 768px) {
         flex-direction: column;
-        align-items: center;
-        gap: 8px;
+        align-items: flex-start;
+        gap: 12px;
         padding: 1rem;
+    }
+
+    .brand-section {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+
+        @media (max-width: 768px) {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+        }
     }
 
     .logo-container {
@@ -36,8 +48,8 @@ $gray-text: #4a5568;
         gap: 12px;
 
         .logo-image {
-            height: 60px;
-            width: 60px;
+            height: 48px;
+            width: 48px;
         }
 
         .logo-text {
@@ -48,18 +60,30 @@ $gray-text: #4a5568;
         }
     }
 
+    .brand-divider {
+        height: 24px;
+        width: 1.5px;
+        background-color: #e2e8f0;
+
+        @media (max-width: 768px) {
+            display: none;
+        }
+    }
+
     .subtitle {
         color: $teal;
-        font-weight: 500;
-        font-size: 14px;
+        font-weight: 600;
+        font-size: 13px;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 1.5px;
+        margin-top: 2px;
     }
-    
+
     .header-links {
         display: flex;
         align-items: center;
-        margin-left: auto; /* Push to the right if space-between isn't enough */
+        margin-left: auto;
+        /* Push to the right if space-between isn't enough */
 
         .github-link {
             display: flex;
@@ -293,7 +317,7 @@ $gray-text: #4a5568;
     padding-bottom: 15px;
     color: #8892a0;
     font-size: 11px;
-    
+
     p {
         margin: 0;
     }
