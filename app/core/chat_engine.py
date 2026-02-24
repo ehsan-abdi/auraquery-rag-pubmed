@@ -98,9 +98,9 @@ class AuraChatEngine:
         # 4. Save AI response to history
         self.sessions[session_id].append(AIMessage(content=answer))
         
-        # Trim history to prevent context bloat (keep last 6 interactions)
-        if len(self.sessions[session_id]) > 12: 
-            self.sessions[session_id] = self.sessions[session_id][-12:]
+        # Trim history to prevent context bloat (keep last 5 interactions/10 messages)
+        if len(self.sessions[session_id]) > 10: 
+            self.sessions[session_id] = self.sessions[session_id][-10:]
             
         return answer
         

@@ -49,3 +49,4 @@ data/
 build/
 dist/
 *.egg-info/
+AuraQuery_Story_Presentation.*

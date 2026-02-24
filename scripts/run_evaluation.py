@@ -28,6 +28,7 @@ class GeneratedQuestion(BaseModel):
 
 class ArticleQASet(BaseModel):
     pmid: str
+    publication_type: str
     questions: List[GeneratedQuestion]
 
 class EvaluationScore(BaseModel):
@@ -37,18 +38,37 @@ class EvaluationScore(BaseModel):
 # -----------------------------------------------------------------------
 # Prompts
 # -----------------------------------------------------------------------
-QUESTION_GENERATION_SYSTEM = """You are an expert biomedical research assistant evaluating an LLM chatbot that specializes in Hereditary Hemorrhagic Telangiectasia (HHT).
+QUESTION_GENERATION_SYSTEM = """You are an expert biomedical research specialist evaluating an LLM chatbot that specializes in Hereditary Hemorrhagic Telangiectasia (HHT).
 I will provide you with the JSON abstract/body text of a biomedical article.
-Your task is to generate exactly 3 highly specific, highly diverse questions that a researcher might ask about this topic.
 
-CRITICAL RULES FOR QUESTIONS:
-1. NO PRE-ASSUMED BIAS: Focus your questions on the core, unique thesis and findings of the specific paper provided. DO NOT fixate on generic HHT treatments (such as Bevacizumab) unless that is the primary, explicit focus of this specific paper. 
-2. HHT SPECIFICITY: The questions MUST be explicitly related to HHT or its direct manifestations/treatments. If a paper discusses a generic concept, specifically ask how it relates to HHT.
-3. STATELESSNESS: The questions MUST BE COMPLETELY STANDALONE. 
-   - DO NOT say "In this paper..." or "What did the authors find in this study...".
-   - DO NOT refer to the article itself. The questions should sound like a doctor asking a general knowledge base (e.g., "What is the expected reduction in epistaxis after 3 months of anti-angiogenic therapy?").
-4. DIVERSITY: Ensure the 3 questions cover completely different aspects of the text (e.g., one about methodology, one about specific statistical results, one about the discussion/conclusion).
-5. GROUND TRUTH: Provide the exact, correct answer to your question based strictly on the text provided.
+Your task is to generate exactly three highly specific, technically detailed, and mutually diverse research questions that can be answered by retrieving the provided article.
+These questions should reflect what a specialized researcher in the field might realistically ask a chatbot.
+
+CRITICAL INSTRUCTION ON STATELESSNESS & GENERALIZATION:
+Many biomedical papers discuss specific cohorts or case studies (e.g., "we treated a 35-year old patient..."). 
+You MUST generalize these specific instances into universal clinical or biological questions.
+* NEVER ask about "the patient", "this cohort", "the authors", or "the study".
+* NEVER use past tense verbs (e.g., was, were, did, revealed, considered). Use present tense (e.g., is, are, does, reveals, considers).
+* NEVER use pronouns (it, its, they, their, this, these, those).
+
+EXAMPLES OF GOOD VS BAD QUESTIONS:
+
+BAD (Violates statelessness & past tense): "What treatment was considered prudent for the patient with concomitant AERD and HHT?"
+GOOD (Generalized & present tense): "What treatment approach is considered prudent for patients presenting with concomitant Aspirin-Exacerbated Respiratory Disease (AERD) and HHT to mitigate bleeding risk?"
+
+BAD (Violates statelessness & past tense): "What did the nasal endoscopy reveal in the patient with HHT?"
+GOOD (Generalized & present tense): "What are typical nasal endoscopy findings in patients presenting with HHT and AERD?"
+
+BAD (Violates statelessness/Study referential): "What bioinformatics tools are used in this study to evaluate the ACVRL1 variant?"
+GOOD (Generalized): "What bioinformatics tools and scores are commonly utilized to evaluate the pathogenicity of the ACVRL1:c.1415G>A variant in HHT?"
+
+GROUND TRUTH ANSWERS:
+- Provide the exact correct answer strictly derived from the provided text.
+- Do not infer beyond the text.
+
+RESTRICTED SECTIONS:
+- Do NOT generate ANY questions based on the "Relationship Disclosures", "Conflict of Interest", "Author Contributions", "Funding", or "Acknowledgements" sections.
+- Focus exclusively on the scientific Background, Methods, Results, and Discussion.
 
 Return exactly 3 questions in the specified JSON format.
 """
@@ -85,10 +105,10 @@ class RAGEvaluator:
         self.sample_size = sample_size
         self.chat_engine = AuraChatEngine()
         
-        # Generator LLM (can be cheaper, e.g., gpt-4o-mini)
+        # Generator LLM (Needs advanced reasoning to follow strict non-generic instructions; use gpt-4o-mini for budget)
         self.generator_llm = ChatOpenAI(
             model="gpt-4o-mini", 
-            temperature=0.2,
+            temperature=0.7,
             api_key=settings.OPENAI_API_KEY
         ).with_structured_output(ArticleQASet)
         self.generator_prompt = ChatPromptTemplate.from_messages([
@@ -97,9 +117,9 @@ class RAGEvaluator:
         ])
         self.generator_chain = self.generator_prompt | self.generator_llm
         
-        # Judge LLM (requires advanced reasoning, use gpt-4o if possible, falling back to 4o-mini for budget)
+        # Judge LLM (requires advanced reasoning, use 4o-mini for budget)
         self.judge_llm = ChatOpenAI(
-            model="gpt-4o", 
+            model="gpt-4o-mini", 
             temperature=0.0,
             api_key=settings.OPENAI_API_KEY
         ).with_structured_output(EvaluationScore)
@@ -125,36 +145,106 @@ class RAGEvaluator:
             with open(file_path, "r", encoding="utf-8") as f:
                 article_data = json.load(f)
                 
+            abstract_layer = article_data.get("abstract_layer", {})
+            body_layer = article_data.get("body_layer", {})
+            
             # Combine Title, Abstract, and Body for context
-            title = article_data.get("title", "")
-            abstract = article_data.get("abstract", "")
-            body = "\n".join(article_data.get("body_text", []))
+            title = abstract_layer.get("article_title", "")
+            abstract = abstract_layer.get("content", "")
+            body = body_layer.get("content", "")
             
             full_text = f"TITLE: {title}\nABSTRACT: {abstract}\nBODY: {body}"
             full_text = self._truncate_text(full_text)
             
+            
             pmid = article_data.get("pmid", file_path.stem)
             
-            print(f"Generating questions for PMID {pmid}...")
+            # Extract publication types for metrics 
+            pub_types_list = abstract_layer.get("publication_types", [])
+            publication_type = ", ".join(pub_types_list) if pub_types_list else "Unknown"
+            
+            print(f"Generating questions for PMID {pmid} ({publication_type})...")
             # We await the chain here for async
             result = await self.generator_chain.ainvoke({"article_text": full_text})
-            # Override PMID just in case LLM hallucinated it
+            # Override PMID and Set Publication Type just in case LLM hallucinated it
             result.pmid = str(pmid)
+            result.publication_type = publication_type
             return result
         except Exception as e:
             print(f"Error generating questions for {file_path.name}: {e}")
             return None
 
-    def evaluate_chatbot(self, qa_set: ArticleQASet) -> List[dict]:
-        """Passes the generated questions to AuraChatEngine and scores the responses."""
-        results = []
-        for q_index, qa in enumerate(qa_set.questions):
-            print(f"  -> Testing Q{q_index+1}: {qa.question[:50]}...")
+    def _save_test_set(self, qa_sets: List[ArticleQASet], filename: str = "data/ground_truth_test_set.json"):
+        os.makedirs("data", exist_ok=True)
+        data_to_save = [qa.model_dump() for qa in qa_sets]
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data_to_save, f, indent=4)
+        print(f"\nSaved {len(qa_sets)} Article Q&A Sets to {filename}")
+
+    def _load_test_set(self, filename: str = "data/ground_truth_test_set.json") -> List[ArticleQASet]:
+        if not os.path.exists(filename):
+            raise FileNotFoundError(f"Test set not found at {filename}. Run generation first.")
             
-            # 1. Get Chatbot Answer (Use a unique session ID per question to prevent conversational cross-contamination)
-            session_id = f"eval_{qa_set.pmid}_{q_index}"
+        with open(filename, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        qa_sets = [ArticleQASet(**item) for item in data]
+        return qa_sets
+
+    async def run_generation(self, num_articles: int = 33):
+        print(f"Starting Static Test Set Generation (N={num_articles} articles)")
+        self.sample_size = num_articles
+        articles = self._get_random_articles()
+        print(f"Sampled {len(articles)} articles.")
+        
+        tasks = [self.generate_questions(path) for path in articles]
+        qa_sets = await asyncio.gather(*tasks)
+        qa_sets = [q for q in qa_sets if q is not None]
+        
+        total_questions = sum(len(qa.questions) for qa in qa_sets)
+        print(f"Successfully generated {total_questions} questions across {len(qa_sets)} articles.")
+        
+        self._save_test_set(qa_sets)
+
+    def run_evaluation(self, num_questions: int = 60):
+        print(f"Starting LLM-as-a-Judge Evaluation (Testing {num_questions} Questions)")
+        
+        try:
+            qa_sets = self._load_test_set()
+        except FileNotFoundError as e:
+            print(e)
+            return
+
+        # Flatten all questions into a single pool to sample exactly num_questions
+        all_available_questions = []
+        for qa_set in qa_sets:
+            for q in qa_set.questions:
+                all_available_questions.append({
+                    "pmid": qa_set.pmid,
+                    "publication_type": qa_set.publication_type,
+                    "question_obj": q
+                })
+                
+        if len(all_available_questions) < num_questions:
+            print(f"Warning: Requested {num_questions} questions, but only {len(all_available_questions)} exist in the cache. Using all available.")
+            sampled_questions = all_available_questions
+        else:
+            sampled_questions = random.sample(all_available_questions, num_questions)
+
+        print(f"Sampled {len(sampled_questions)} random questions from the test bank.")
+        
+        all_results = []
+        for i, item in enumerate(sampled_questions):
+            pmid = item["pmid"]
+            pub_type = item["publication_type"]
+            qa = item["question_obj"]
+            
+            print(f"  -> Testing Q{i+1}: {qa.question[:50]}...")
+            
+            # 1. Get Chatbot Answer
+            session_id = f"eval_static_{pmid}_{i}"
             start_time = time.time()
-            chatbot_answer = self.chat_engine.chat(user_input=qa.question, session_id=session_id)
+            chatbot_answer, strategy = self.chat_engine.chat(user_input=qa.question, session_id=session_id)
             latency = time.time() - start_time
             
             # 2. Score Answer with Judge LLM
@@ -168,15 +258,17 @@ class RAGEvaluator:
                 reasoning = evaluation.reasoning
             except Exception as e:
                 print(f"  -> Judging failed: {e}")
-                score = 0
+                score = -1
                 reasoning = "Judge LLM Error"
 
-            results.append({
-                "pmid": qa_set.pmid,
+            all_results.append({
+                "pmid": pmid,
+                "publication_type": pub_type,
                 "question": qa.question,
                 "category": qa.category,
                 "ground_truth": qa.ground_truth,
                 "chatbot_answer": chatbot_answer,
+                "retrieval_strategy": strategy,
                 "latency_sec": round(latency, 2),
                 "score": score,
                 "reasoning": reasoning
@@ -185,26 +277,7 @@ class RAGEvaluator:
             # Respect rate limits
             time.sleep(1)
             
-        return results
-
-    async def run(self):
-        print(f"Starting LLM-as-a-Judge Evaluation (N={self.sample_size} articles)")
-        articles = self._get_random_articles()
-        print(f"Sampled {len(articles)} articles.")
-        
-        # Step 1: Generate Questions for all articles concurrently
-        tasks = [self.generate_questions(path) for path in articles]
-        qa_sets = await asyncio.gather(*tasks)
-        qa_sets = [q for q in qa_sets if q is not None]
-        print(f"Successfully generated {len(qa_sets) * 3} questions across {len(qa_sets)} articles.")
-        
-        # Step 2 & 3: Evaluate Answers sequentially (to not bombard Qdrant/OpenAI limits)
-        all_results = []
-        for qa_set in qa_sets:
-            results = self.evaluate_chatbot(qa_set)
-            all_results.extend(results)
-            
-        # Step 4: Export and Summarize
+        # Export and Summarize
         self._export_to_csv(all_results)
         self._print_summary(all_results)
 
@@ -222,30 +295,54 @@ class RAGEvaluator:
             print("No results to summarize.")
             return
             
+        # Filter out questions where the Judge LLM failed (-1)
+        valid_results = [r for r in results if r['score'] != -1]
+        
         total_questions = len(results)
-        average_score = sum(r['score'] for r in results) / total_questions
+        valid_questions = len(valid_results)
+        
+        if valid_questions == 0:
+            print("No valid scores to summarize.")
+            return
+            
+        average_score = sum(r['score'] for r in valid_results) / valid_questions
         average_latency = sum(r['latency_sec'] for r in results) / total_questions
-        perfect_scores = sum(1 for r in results if r['score'] == 10)
-        zero_scores = sum(1 for r in results if r['score'] == 0)
+        perfect_scores = sum(1 for r in valid_results if r['score'] == 10)
+        zero_scores = sum(1 for r in valid_results if r['score'] == 0)
+        judge_errors = sum(1 for r in results if r['score'] == -1)
         
         print("\n" + "="*50)
         print("EVALUATION SUMMARY")
         print("="*50)
         print(f"Total Questions Evaluated : {total_questions}")
+        print(f"Valid Questions Scored    : {valid_questions}")
+        print(f"Judge LLM Errors (Skipped): {judge_errors} ({judge_errors/total_questions*100:.1f}%)")
         print(f"Average System Score      : {average_score:.2f} / 10.00")
         print(f"Average Response Latency  : {average_latency:.2f} seconds")
-        print(f"Perfect Scores (10/10)    : {perfect_scores} ({perfect_scores/total_questions*100:.1f}%)")
-        print(f"Zero Scores / Failures    : {zero_scores} ({zero_scores/total_questions*100:.1f}%)")
+        print(f"Perfect Scores (10/10)    : {perfect_scores} ({perfect_scores/valid_questions*100:.1f}%)")
+        print(f"Zero Scores / Failures    : {zero_scores} ({zero_scores/valid_questions*100:.1f}%)")
         print("="*50)
 
 if __name__ == "__main__":
-    # Get N from command line if provided
-    sample_size = 10
-    if len(sys.argv) > 1:
-        try:
-            sample_size = int(sys.argv[1])
-        except ValueError:
-            pass
-            
-    evaluator = RAGEvaluator(sample_size=sample_size)
-    asyncio.run(evaluator.run())
+    import argparse
+    parser = argparse.ArgumentParser(description="AuraQuery RAG Evaluation Framework")
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    # Generate Command
+    generate_parser = subparsers.add_parser("generate", help="Generate a static test bank of questions")
+    generate_parser.add_argument("articles", type=int, nargs="?", default=33, help="Number of articles to sample (each yields 3 questions)")
+    
+    # Evaluate Command
+    evaluate_parser = subparsers.add_parser("evaluate", help="Run the RAG chatbot against the static test bank")
+    evaluate_parser.add_argument("questions", type=int, nargs="?", default=20, help="Number of questions to randomly sample from the test bank")
+    
+    args = parser.parse_args()
+    
+    evaluator = RAGEvaluator()
+    
+    if args.command == "generate":
+        asyncio.run(evaluator.run_generation(num_articles=args.articles))
+    elif args.command == "evaluate":
+        evaluator.run_evaluation(num_questions=args.questions)
+    else:
+        parser.print_help()

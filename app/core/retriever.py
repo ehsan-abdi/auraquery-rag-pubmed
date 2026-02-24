@@ -25,13 +25,13 @@ class AuraRetriever:
         
         # Adjustable Hyperparameters
         self.abstract_top_n = 50
-        self.chunk_top_k = 40
-        self.max_chunks_per_article = 3
-        self.target_return_size = 15
+        self.chunk_top_k = 80
+        self.max_chunks_per_article = 5
+        self.target_return_size = 30
 
-    def retrieve(self, raw_query: str) -> List[Document]:
+    def retrieve(self, raw_query: str, bypass_stage_1: bool = False) -> List[Document]:
         """The main orchestration pipeline."""
-        logger.info(f"Starting retrieval pipeline for query: '{raw_query}'")
+        logger.info(f"Starting retrieval pipeline for query: '{raw_query}' (Bypass Stage 1: {bypass_stage_1})")
         
         # 1. Parse Query
         parsed_query = self.query_parser.parse(raw_query)
@@ -58,21 +58,32 @@ class AuraRetriever:
         import re
         extracted_pmids = re.findall(r'PMID:?\s*(\d{7,8})', raw_query, re.IGNORECASE)
         
-        if extracted_pmids:
+        if bypass_stage_1:
+            logger.info("Bypassing Stage 1: Executing Global Fallback Search on Index B.")
+            raw_chunks = self._stage_2_global_chunk_search(search_term, parsed_query)
+            # Skip Stage 3 (Reranking) and Stage 4 (Diversity Filter) because native Qdrant RRF 
+            # already ranks Dense/Sparse perfectly. Our custom reranker might accidentally 
+            # penalize the optimal BM25 exact-match.
+            final_chunks = [doc for doc, _ in raw_chunks][:self.target_return_size]
+            logger.info(f"Fallback complete. Yielding {len(final_chunks)} chunks directly from Native Hybrid search.")
+            return final_chunks
+            
+        elif extracted_pmids:
             logger.info(f"Explicit PMIDs detected in query: {extracted_pmids}. Bypassing Stage 1.")
             candidate_pmids = list(set(extracted_pmids))
+            raw_chunks = self._stage_2_chunk_search(search_term, candidate_pmids)
         else:
             # 2. Stage 1: Candidate Article Retrieval (Index A)
             candidate_pmids = self._stage_1_abstract_search(search_term, parsed_query)
+            if not candidate_pmids:
+                logger.warning("No candidate abstracts found. Aborting retrieval.")
+                return []
+                
+            # 3. Stage 2: Chunk-Level Retrieval (Index B) Restricted to Candidates
+            raw_chunks = self._stage_2_chunk_search(search_term, candidate_pmids)
             
-        if not candidate_pmids:
-            logger.warning("No candidate abstracts found. Aborting retrieval.")
-            return []
-            
-        # 3. Stage 2: Chunk-Level Retrieval (Index B)
-        raw_chunks = self._stage_2_chunk_search(search_term, candidate_pmids)
         if not raw_chunks:
-            logger.warning("No body chunks found for candidate PMIDs.")
+            logger.warning("No body chunks found for query.")
             return []
             
         # 4. Stage 3: Metadata-Aware Reranking
@@ -184,6 +195,28 @@ class AuraRetriever:
         
         return dense_results
 
+    def _stage_2_global_chunk_search(self, search_term: str, parsed_query: ParsedQuery) -> List[Tuple[Document, float]]:
+        """Executes a global search directly against all chunks in Index B (Fallback method)."""
+        logger.info("Executing Global Stage 2 Deep Search uniformly across Index B.")
+        
+        global_filter = self._build_qdrant_filter(parsed_query)
+        kwargs = {"query": search_term, "k": self.chunk_top_k * 2}
+        
+        if global_filter:
+            logger.info("Applying strict Global Qdrant metadata filter on Index B.")
+            kwargs["filter"] = global_filter
+            
+        try:
+            dense_results = self.vector_store.collection_b.similarity_search_with_relevance_scores(**kwargs)
+        except Exception as e:
+            logger.error(f"Global Index B search failed with filter: {e}")
+            # Failsafe: drop the filter and try again if it was too restrictive
+            dense_results = self.vector_store.collection_b.similarity_search_with_relevance_scores(
+                query=search_term, k=self.chunk_top_k * 2
+            )
+            
+        return dense_results
+
     def _stage_3_rerank(self, scored_docs: List[Tuple[Document, float]], parsed_query: ParsedQuery) -> List[Tuple[Document, float]]:
         """Applies algorithmic boosts to favor RCTs, robust methodologies, and recent papers."""
         logger.info("Executing Stage 3 Custom Reranking.")
@@ -210,7 +243,7 @@ class AuraRetriever:
             elif "Review" in pub_types:
                 final_score += 0.55
             elif "Case Reports" in pub_types:
-                final_score += 0.30
+                final_score += 0.50
             else:
                 final_score += 0.60 # Standard Journal Article fallback
                 

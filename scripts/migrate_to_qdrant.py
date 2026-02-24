@@ -8,10 +8,11 @@ main_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, main_dir)
 
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct
+from qdrant_client.http.models import Distance, VectorParams, PointStruct, SparseVectorParams, Modifier, SparseVector
 import chromadb
 
 from app.utils.config import settings
+from langchain_qdrant import FastEmbedSparse
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -45,6 +46,10 @@ def migrate_collection(chroma_name: str, qdrant_name: str, qdrant_client: Qdrant
     total_docs = len(ids)
     logger.info(f"Found {total_docs} documents with pre-computed embeddings in '{chroma_name}'.")
     
+    # Initialize FastEmbedSparse to compute sparse vectors during migration
+    logger.info("Initializing FastEmbedSparse model (Qdrant/bm25)...")
+    sparse_model = FastEmbedSparse(model_name="Qdrant/bm25")
+    
     # 2. Prepare or Re-create Qdrant Collection
     try:
         if qdrant_client.collection_exists(collection_name=qdrant_name):
@@ -54,7 +59,8 @@ def migrate_collection(chroma_name: str, qdrant_name: str, qdrant_client: Qdrant
         logger.info(f"Creating fresh Qdrant collection: {qdrant_name}")
         qdrant_client.create_collection(
             collection_name=qdrant_name,
-            vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+            vectors_config={"": VectorParams(size=1536, distance=Distance.COSINE)},
+            sparse_vectors_config={"langchain-sparse": SparseVectorParams(modifier=Modifier.IDF)}
         )
         
         # Extremely Important for LangChain Metadata Filtering:
@@ -80,6 +86,10 @@ def migrate_collection(chroma_name: str, qdrant_name: str, qdrant_client: Qdrant
     for i in range(0, total_docs, batch_size):
         end_idx = min(i + batch_size, total_docs)
         
+        # Calculate sparse embeddings for the batch
+        batch_texts = texts[i:end_idx]
+        sparse_batch = sparse_model.embed_documents(batch_texts)
+        
         points = []
         for j in range(i, end_idx):
             # LangChain exclusively looks for metadata inside a nested 'metadata' dictionary
@@ -89,10 +99,15 @@ def migrate_collection(chroma_name: str, qdrant_name: str, qdrant_client: Qdrant
                 "metadata": metadatas[j].copy() if metadatas[j] else {}
             }
             
+            sparse_vec = sparse_batch[j - i]
+            
             points.append(
                 PointStruct(
                     id=str(uuid4()), 
-                    vector=vectors[j], 
+                    vector={
+                        "": vectors[j],
+                        "langchain-sparse": SparseVector(indices=sparse_vec.indices, values=sparse_vec.values)
+                    }, 
                     payload=payload
                 )
             )

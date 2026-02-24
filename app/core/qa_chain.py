@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Tuple
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -19,7 +19,7 @@ QA_SYSTEM_PROMPT = """You are AuraQuery, an expert biomedical AI assistant desig
 You must answer the user's question accurately, directly, and comprehensively based explicitly on the Context Provided below.
 
 CRITICAL RULES:
-1. NO HALLUCINATION: If the context does not contain the answer, state clearly: "I cannot find sufficient evidence in the parsed literature to answer this question." Do not attempt to guess or use outside knowledge.
+1. NO HALLUCINATION: If the context does not contain the answer, state clearly: "I couldn't find sufficient evidence in the literature to answer this question." Do not attempt to guess or use outside knowledge.
 2. CITATIONS REQUIRED: Every distinct medical claim, statistic, or observation MUST be cited in-line using the exact metadata provided in each chunk's header.
    - You MUST include the PMID in every citation.
    - Use Harvard style format WITH the PMID: (First Author Last Name, Year) [PMID: XXXXXX] or just [PMID: XXXXXX] if author/year data is missing.
@@ -53,32 +53,49 @@ class AuraQAChain:
             ("human", "{question}")
         ])
 
-    def query(self, raw_query: str) -> str:
-        """Executes the full RAG pipeline and returns the Markdown answer."""
+    def query(self, raw_query: str) -> Tuple[str, str]:
+        """Executes the full RAG pipeline and returns the Markdown answer and strategy used."""
         logger.info(f"Executing End-to-End RAG for query: {raw_query}")
         
-        # 1. Retrieve the best Chunks
         docs = self.retriever.retrieve(raw_query)
         
         if not docs:
-            return "No relevant literature could be found to answer this query."
+            return "No relevant literature could be found to answer this query.", "Failed"
             
         # 2. Check if the Retriever bounced back a Clarification Request
         if docs[0].metadata.get("type") == "clarification":
-            return docs[0].page_content.replace("System Alert: Do not answer the user's question. Instead, ask them this clarification: ", "")
+            return docs[0].page_content.replace("System Alert: Do not answer the user's question. Instead, ask them this clarification: ", ""), "Clarification"
             
-        # 3. Format the Context block
+        # 3. Format the Context block and Generate Initial Answer
         formatted_context = self._format_docs(docs)
         logger.info(f"Context compiled. Sending {len(docs)} chunks to LLM payload.")
         
-        # 4. Generate Answer
         chain = self.prompt_template | self.llm
         response = chain.invoke({
             "context": formatted_context,
             "question": raw_query
         })
+        answer = response.content
         
-        return response.content
+        # 4. Fallback Trigger: If the LLM explicitly states it couldn't find evidence,
+        # we bypass Stage 1 (Abstract Top-N) and force a deep global search on Index B.
+        if "I couldn't find sufficient evidence" in answer:
+            logger.warning("LLM reported insufficient evidence from Stage 1 Abstracts. Triggering Global Index B Fallback Search.")
+            fallback_docs = self.retriever.retrieve(raw_query, bypass_stage_1=True)
+            
+            if fallback_docs:
+                logger.info(f"Fallback retrieved {len(fallback_docs)} chunks from Index B. Re-prompting LLM.")
+                fallback_context = self._format_docs(fallback_docs)
+                fallback_response = chain.invoke({
+                    "context": fallback_context,
+                    "question": raw_query
+                })
+                return fallback_response.content, "Bypassed Index A"
+            else:
+                logger.warning("Fallback global search yielded no results either.")
+                return answer, "Index A -> Index B"
+                
+        return answer, "Index A -> Index B"
 
     def _format_docs(self, docs: List[Document]) -> str:
         """Helper to inject cleanly formatted texts and metadata into the LLM prompt."""

@@ -183,87 +183,88 @@ This will run the two-layer indexing strategy, chunking by markdown headers and 
 data/processed/hht/
 ```
 
-#### 3. To embed the processed chunks into ChromaDB:
+#### 3. To migrate the chunks to Qdrant Cloud (Dense + Sparse Vectors):
 
 ```bash
-python scripts/build_vector_store.py --folder hht
+python scripts/migrate_to_qdrant.py
 ```
 
-This will run the chunks through OpenAI's `text-embedding-3-small` model and save the resulting vectors locally to:
-```bash
-data/vectorstore/
-```
+This script generates **BM25 Sparse Vectors** (via `FastEmbed`) and OpenAI Dense Vectors on the fly, pushing them to a native Hybrid Qdrant Cloud cluster.
 
 ---
 
-## 🔍 Querying the Knowledge Base
+## 🔍 Specialized Hybrid Retrieval
 
-AuraQuery comes with two built-in terminal interfaces to query your specialized vector database using the advanced hybrid retrieval pipeline:
+AuraQuery executes a highly optimized **Reciprocal Rank Fusion (RRF)** retrieval pipeline:
 
-### 1. Single-Shot Queries
-Run the basic CLI tool for isolated clinical questions:
-```bash
-python scripts/run_query.py "What are the common genetic mutations associated with Hereditary Hemorrhagic Telangiectasia?"
-```
+1. **Abstract Layer (Index A):** A wide-net semantic search over abstracts to derive candidate PMIDs.
+2. **Body Layer (Index B):** Qdrant performs a native **Dense + Sparse Hybrid Search** strictly filtered to the Candidate PMIDs.
+   - *Dense Vector:* Captures the semantic "meaning" (e.g., tying "blood thinners" to "anticoagulants").
+   - *Sparse Vector:* Laser-targets exact clinical jargon (e.g., specific mutations like "c.1466del").
+3. **Custom Python Reranker:** We algorithmically boost chunks originating from **RCTs, Meta-Analyses**, and **Recent Publications**. 
+4. **Diversity Guardrail:** Results are hard-capped at **5 chunks per PMID** to force multi-source synthesis.
 
-### 2. Conversational Memory (Phase 4)
-Run the interactive chat engine to engage in multi-turn dialogue with memory:
+### Conversational Memory (Phase 4)
+Run the interactive terminal chat engine to engage in multi-turn dialogue:
 ```bash
 python scripts/run_chat.py
 ```
-This engine utilizes a **Query Reformulator** to intercept conversational pronouns (e.g., "What are its side effects?"), rewrite them into standalone queries by analyzing the chat history, and seamlessly extract and carry over specific PMIDs for highly targeted follow-up retrieval.
-
-### Phase 3 Hybrid Retrieval Architecture
-Our custom engine uses **True Hybrid Search**:
-1. **Abstract Layer (Index A):** A wide-net dense search over thousands of abstracts to derive candidate PMIDs.
-2. **Body Chunk Layer (Index B):** A restrictive dense search drilling deeply into the isolated PMIDs utilizing strict keyword filtering.
-3. **Custom Python Reranker:** We linearly boost chunks originating from **Meta-Analyses** and **RCTs**, and boost sections discussing **Results** or **Conclusions**.
-4. **Diversity Guardrail:** Results are strictly capped at **3 chunks per PMID** to force multi-source synthesis and prevent single-review dominance.
+This engine utilizes a **Query Reformulator** to intercept conversational pronouns (e.g., "What are its side effects?"), rewrite them into standalone queries, and extract explicit metadata filters (like PMIDs) from the chat history.
 
 ---
 
-## ☁️ Qdrant Cloud & FastAPI Backend
+## ☁️ FastAPI Backend (Phase 6)
 
-AuraQuery has transitioned from a local terminal script to a production-ready Web API.
+AuraQuery has transitioned to a production-ready Web API connecting to the remote Qdrant Cloud cluster.
 
-### Vector Database Migration (Phase 5)
-All local ChromaDB SQLite instances were migrated to a high-performance **Qdrant Cloud** cluster.
-- Native `MatchAny` LangChain payload schemas
-- Remote REST API retrieval
-- Zero local state dependency for inference
-
-### FastAPI Integration (Phase 6)
 To run the scalable REST backend locally:
 ```bash
 uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-You can interact with the RAG pipeline graphically via the auto-generated Swagger UI at `http://localhost:8000/docs`.
+You can interact with the RAG pipeline graphically via the Swagger UI at `http://localhost:8000/docs`.
 
 **Core Endpoints:**
-- `POST /api/chat`: Submit queries with a specific `session_id` to leverage memory-aware conversational retrieval.
+- `POST /api/chat`: Submit queries with a `session_id` to leverage memory-aware conversational retrieval.
 - `GET /api/health`: Check database integration status.
+
+---
+
+## 📊 LLM-as-a-Judge Evaluation Framework
+
+AuraQuery includes a robust, autonomous RAG evaluation pipeline to quantitatively benchmark retrieval and generation performance.
+
+#### Generating the Static Test Bank
+We dynamically fetch random raw articles and prompt a Teacher LLM to generate 99 highly-specific, stateless clinical questions (along with their Ground Truth answers).
+```bash
+python scripts/run_evaluation.py generate 33
+```
+
+#### Evaluating the Chatbot
+We pass the 99 questions to the Aura Chatbot, and use a Judge LLM (`gpt-4o-mini`) to grade the generated responses (0-10) against the hidden Ground Truth. The Judge explicitly penalizes hallucination and failure to cite reliable PMIDs.
+```bash
+python scripts/run_evaluation.py evaluate 60
+```
+This loop generates a comprehensive `data/evaluation_results.csv` tracking latency, accuracy, and detailed grading reasoning for every automated test.
 
 ---
 
 ## 🔒 Production Considerations
 
-- Secure API key management via .env
-- Modular separation of concerns
-- Centralized logging configuration
-- Rate-limit aware NCBI fetching
-- Scalable two-index retrieval design
+- Secure API key management via `.env`
+- Static Test Caching to minimize LLM evaluation costs
+- Rate-limit aware NCBI and OpenAI execution
+- Zero local-state vector dependency (Qdrant Cloud)
 
 ---
 
 ## 🛣 Roadmap
-- [x] Vector store integration (Abstract + Body indices)
-- [x] Retrieval module implementation
-- [x] LLM answer generation chain
-- [x] Qdrant Cloud Migration
+- [x] Abstract + Body indices implementation
+- [x] Two-stage Retrieval & Refined Generation
+- [x] True Hybrid Search Migrated to Qdrant Cloud
+- [x] Automated LLM-as-a-Judge Evaluation Pipeline
 - [x] FastAPI REST endpoints
-- [ ] Angular frontend interface
-- [ ] Deployment to personal website
-- [ ] CI/CD pipeline
+- [x] Angular Frontend Chat Interface
+- [ ] Cloud Deployment (GCP / AWS / Firebase)
 - [ ] Docker containerization
 
 ---

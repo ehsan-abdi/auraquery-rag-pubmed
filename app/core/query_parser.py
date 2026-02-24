@@ -24,7 +24,7 @@ class MetadataFilters(BaseModel):
     )
     first_author_lastname: Optional[str] = Field(
         default=None, 
-        description="The last name of the *first* author. ONLY populate if the user explicitly asks for the 'first author'. If they just ask for 'papers by [Author]', leave this null."
+        description="The last name of the author. If the user asks for papers by a specific name (e.g. 'Prof Shovlin' or 'author Smith'), extract the last name (e.g. 'Shovlin' or 'Smith')."
     )
     journal_name: Optional[str] = Field(default=None)
     mesh_major_terms: Optional[List[str]] = Field(default=None)
@@ -69,7 +69,7 @@ Critical ambiguity is STRICTLY limited to:
 
 Do NOT trigger clarification for:
 * Timeframes like "latest," "recent," or "new" (just ignore them or pass them as context).
-* Author names without first names (e.g., "Prof Shovlin"). Assume the user expects a broad search.
+* Author names without first names (e.g., "Prof Shovlin"). Just extract the last name into the metadata filters.
 * Non-technical phrasing or vague general intents.
 
 BE EXTREMELY FORGIVING. ONLY populate `clarification_required` if a biomedical term is hopelessly ambiguous (e.g., "The term 'APC' could refer to the APC gene or antigen-presenting cells."). Otherwise, ALWAYS leave it null and proceed to Step 2.
@@ -77,6 +77,7 @@ BE EXTREMELY FORGIVING. ONLY populate `clarification_required` if a biomedical t
 STEP 2 — QUERY OPTIMIZATION RULES (If no ambiguity)
 1. Clarify and Standardize
 * Replace vague language with precise biomedical terminology.
+* Normalize informal or layperson terms to objective clinical terminology (e.g., convert "painful mutations" to "mutations causing severe symptoms").
 * Expand important acronyms once (e.g., “systemic lupus erythematosus (SLE)”).
 * Use canonical gene symbols.
 

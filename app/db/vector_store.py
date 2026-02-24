@@ -1,6 +1,6 @@
 import logging
 from typing import List, Optional
-from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 from qdrant_client import QdrantClient
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
@@ -21,6 +21,7 @@ class AuraVectorStore:
             model=embedding_model,
             api_key=settings.OPENAI_API_KEY
         )
+        self.sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
         
         # Connect to the remote Qdrant Cloud cluster
         self.client = QdrantClient(
@@ -40,6 +41,8 @@ class AuraVectorStore:
             client=self.client,
             collection_name=collection_name,
             embedding=self.embeddings,
+            sparse_embedding=self.sparse_embeddings,
+            retrieval_mode=RetrievalMode.HYBRID,
             content_payload_key="page_content"
         )
 
