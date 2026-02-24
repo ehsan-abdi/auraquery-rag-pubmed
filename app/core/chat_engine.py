@@ -93,7 +93,7 @@ class AuraChatEngine:
         
         # 3. Execute the full Phase 3 QA Chain (Parse -> Retrieve -> Generation)
         # using the perfectly standalone query, so vector search doesn't break.
-        answer = self.qa_chain.query(standalone_query)
+        answer, strategy = self.qa_chain.query(standalone_query)
         
         # 4. Save AI response to history
         self.sessions[session_id].append(AIMessage(content=answer))
