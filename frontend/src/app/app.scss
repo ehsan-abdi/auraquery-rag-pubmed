@@ -25,7 +25,8 @@ $gray-text: #4a5568;
 
     @media (max-width: 768px) {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center;
+        /* Center everything on mobile */
         gap: 12px;
         padding: 1rem;
     }
@@ -37,7 +38,8 @@ $gray-text: #4a5568;
 
         @media (max-width: 768px) {
             flex-direction: column;
-            align-items: flex-start;
+            align-items: center;
+            /* Center the logo and subtitle stack */
             gap: 4px;
         }
     }
@@ -84,6 +86,11 @@ $gray-text: #4a5568;
         align-items: center;
         margin-left: auto;
         /* Push to the right if space-between isn't enough */
+
+        @media (max-width: 768px) {
+            margin-left: 0;
+            margin-top: 8px;
+        }
 
         .github-link {
             display: flex;
