@@ -55,6 +55,34 @@ $gray-text: #4a5568;
         text-transform: uppercase;
         letter-spacing: 1px;
     }
+    
+    .header-links {
+        display: flex;
+        align-items: center;
+        margin-left: auto; /* Push to the right if space-between isn't enough */
+
+        .github-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: $navy;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            background-color: transparent;
+
+            svg {
+                fill: currentColor;
+            }
+
+            &:hover {
+                background-color: color-mix(in srgb, $navy 5%, transparent);
+            }
+        }
+    }
 }
 
 .chat-container {
@@ -256,5 +284,17 @@ $gray-text: #4a5568;
         ::ng-deep .mdc-notched-outline {
             display: none;
         }
+    }
+}
+
+/* Footer Styling */
+.app-footer {
+    text-align: center;
+    padding-bottom: 15px;
+    color: #8892a0;
+    font-size: 11px;
+    
+    p {
+        margin: 0;
     }
 }
