@@ -10,6 +10,8 @@ $gray-text: #4a5568;
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
+    /* Fix for mobile browser address bar */
     background-color: $light-bg;
     font-family: 'Inter', 'Roboto', sans-serif;
 }
@@ -24,10 +26,8 @@ $gray-text: #4a5568;
     z-index: 10;
 
     @media (max-width: 768px) {
-        flex-direction: column;
-        align-items: center;
-        /* Center everything on mobile */
-        gap: 12px;
+        position: relative;
+        justify-content: center;
         padding: 1rem;
     }
 
@@ -40,7 +40,7 @@ $gray-text: #4a5568;
             flex-direction: column;
             align-items: center;
             /* Center the logo and subtitle stack */
-            gap: 4px;
+            gap: 2px;
         }
     }
 
@@ -88,8 +88,15 @@ $gray-text: #4a5568;
         /* Push to the right if space-between isn't enough */
 
         @media (max-width: 768px) {
-            margin-left: 0;
-            margin-top: 8px;
+            position: absolute;
+            top: 1.5rem;
+            right: 1.25rem;
+            margin: 0;
+
+            span {
+                display: none;
+                /* Hide 'GitHub' text to save space */
+            }
         }
 
         .github-link {
@@ -282,6 +289,12 @@ $gray-text: #4a5568;
     padding: 1.5rem 2rem;
     background-color: transparent;
     border-top: none;
+    margin-bottom: 1.5rem;
+
+    @media (max-width: 768px) {
+        padding: 1rem 1rem 0.5rem 1rem;
+        margin-bottom: 0.5rem;
+    }
 
     .chat-input {
         width: 100%;
@@ -304,6 +317,12 @@ $gray-text: #4a5568;
             margin-bottom: 14px;
             line-height: 1.5;
             overflow-y: hidden;
+
+            &::placeholder {
+                color: #94a3b8;
+                /* Slate-400 gray */
+                opacity: 1;
+            }
         }
 
         ::ng-deep .mat-mdc-form-field-infix {
