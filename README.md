@@ -40,6 +40,11 @@ The retrieval process is hyper-tuned for clinical accuracy and diversity. It is 
 *   **`AuraChatEngine` & Chat History LLM**: Maintains isolated conversational memories. It intercepts conversational follow-ups and explicitly resolves pronouns and historical context (e.g., "What were the side effects of that drug?") into fully standalone search queries using a dedicated **Reformulator LLM**. This ensures the retrieval pipeline never loses context.
 *   **`AuraQAChain`**: Assembles the curated chunks into a strictly formatted prompt. Forces the generation LLM to output professional clinical answers and enforces **in-line Harvard-style citations** mapped directly to the original PMIDs. If no evidence is found, it triggers a global fallback search on Index B before admitting defeat.
 
+### 6. System Evaluation (LLM-as-a-Judge)
+A rigorous automated evaluation suite is implemented to quantitatively validate the RAG pipeline's accuracy, relevancy, and hallucination rates before pushing updates to production.
+*   **Ground Truth Dataset**: Queries are tested against `data/ground_truth_test_set.json`, an established corpus of highly complex biomedical questions coupled with verified citations and answers.
+*   **LLM-as-a-Judge (`scripts/run_evaluation.py`)**: A powerful LLM acts as an impartial adjudicator (`gpt-4o`). It scores the pipeline's end-to-end outputs across isolated dimensions (e.g., *Context Relevancy, Citation Accuracy, Answer Correctness*) eliminating subjective human-bias from evaluation cycles. Results are compiled and audited continuously into `evaluation_results.csv`.
+
 ---
 
 ## 💻 System Implementation (Frontend & Backend)
@@ -49,15 +54,6 @@ The retrieval architecture detailed above is wrapped in a high-performance **Fas
 
 ### Frontend (Angular + Firebase Hosting)
 The user interface is built as a single-page application using **Angular** (located in the `frontend/` directory). It connects dynamically to the FastAPI backend, implementing modern UI paradigms to handle chat flows, streaming citations, and historical sessions. The frontend is built and deployed directly to **Firebase Hosting** for optimized global asset delivery.
-
----
-
-## 📊 System Evaluation (LLM-as-a-Judge)
-
-A rigorous automated evaluation suite is implemented to quantitatively validate the RAG pipeline's accuracy, relevancy, and hallucination rates before pushing updates to production.
-
-*   **Ground Truth Dataset**: Queries are tested against `data/ground_truth_test_set.json`, an established corpus of highly complex biomedical questions coupled with verified citations and answers.
-*   **LLM-as-a-Judge (`scripts/run_evaluation.py`)**: A powerful LLM acts as an impartial adjudicator (`gpt-4o`). It scores the pipeline's end-to-end outputs across isolated dimensions (e.g., *Context Relevancy, Citation Accuracy, Answer Correctness*) eliminating subjective human-bias from evaluation cycles. Results are compiled and audited continuously into `evaluation_results.csv`.
 
 ---
 
