@@ -1,52 +1,24 @@
-# ----------------------------
-# Virtual Environments
-# ----------------------------
-venv/
-.env/
-.venv/
-
-# ----------------------------
-# Environment Variables
-# ----------------------------
-.env
-.env.*
-
-# ----------------------------
-# Python Cache / Compiled Files
-# ----------------------------
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.pytest_cache/
-*.mypy_cache/
-
-# ----------------------------
-# Logs
-# ----------------------------
-*.log
-
-# ----------------------------
-# IDE / Editor
-# ----------------------------
-.vscode/
-.idea/
-
-# ----------------------------
-# OS Files
-# ----------------------------
+# General
 .DS_Store
-Thumbs.db
+.env
+build_log.txt
 
-# ----------------------------
-# Data
-# ----------------------------
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.pytest_cache/
+*.egg-info/
+auraquery.egg-info/
+
+# Data & Models (Do not commit to Git)
 data/
 
-# ----------------------------
-# Build / Distribution
-# ----------------------------
-build/
-dist/
-*.egg-info/
-AuraQuery_Story_Presentation.*
+# Presentations & Large Binary Files
+AuraQuery_Story_Presentation.pptx
+
+# Accidental Cloud SDK Installations 
+Y/
+google-cloud-sdk/

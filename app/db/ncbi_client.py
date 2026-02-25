@@ -1,7 +1,7 @@
 import logging
 import http.client
 import urllib.error
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from Bio import Entrez
 from app.utils.config import settings
 
@@ -10,17 +10,28 @@ logger = logging.getLogger(__name__)
 
 
 class NCBIClient:
-    def __init__(self):
-        """Initialize Entrez with credentials from settings."""
+    """
+    A robust client wrapper for the PubMed (NCBI Entrez) API.
+    Handles searching PMIDs, fetching XML data, resolving PMC links, and fetching full-text bodies.
+    """
+
+    def __init__(self) -> None:
+        """Initializes the Entrez client with API keys and email from system settings."""
         Entrez.email = settings.NCBI_EMAIL
         Entrez.api_key = settings.NCBI_API_KEY
         self.tool = "AuraQuery"
 
     def search_pmids(self, query: str, max_results: int = 10, retstart: int = 0) -> List[str]:
         """
-        Search PubMed for keywords ORed together.
-        Supports pagination via retstart.
-        Returns a list of PMIDs.
+        Executes a targeted search on PubMed using NCBI ESearch.
+
+        Args:
+            query (str): The search term natively formatted for PubMed.
+            max_results (int, optional): The maximum number of PMIDs to return. Defaults to 10.
+            retstart (int, optional): The pagination offset index. Defaults to 0.
+
+        Returns:
+            List[str]: A list of PubMed IDs (PMIDs) matching the query criteria.
         """
         logger.info(
             f"Searching PubMed with query: {query} (start={retstart}, max={max_results})")
@@ -34,7 +45,7 @@ class NCBIClient:
             record = Entrez.read(handle)
             handle.close()
 
-            pmids = record.get("IdList", [])
+            pmids: List[str] = record.get("IdList", [])
             logger.info(f"Found {len(pmids)} PMIDs in this batch.")
             return pmids
         except urllib.error.HTTPError as e:
@@ -50,10 +61,15 @@ class NCBIClient:
             logger.error(f"Unexpected error during NCBI search: {e}")
             return []
 
-    def fetch_full_records(self, pmids: List[str]) -> List[Dict]:
+    def fetch_full_records(self, pmids: List[str]) -> List[Dict[str, Any]]:
         """
-        Fetch full XML records for a list of PMIDs.
-        This provides the abstract, metadata, and (where available) PMC links.
+        Fetches full XML Medline records for a given list of PMIDs via EFetch.
+
+        Args:
+            pmids (List[str]): List of PubMed IDs.
+
+        Returns:
+            List[Dict[str, Any]]: A list of raw parsed XML dictionaries representing the articles.
         """
         if not pmids:
             return []
@@ -83,14 +99,19 @@ class NCBIClient:
 
     def fetch_pmc_links(self, pmids: List[str]) -> Dict[str, str]:
         """
-        Takes a list of PMIDs, performs a single batched elink query,
-        and returns a dictionary mapping PMID -> PMCID.
+        Takes a list of PMIDs, performs a batched ELink query, and maps them to PMCIDs.
+
+        Args:
+            pmids (List[str]): Extracted PMIDs.
+
+        Returns:
+            Dict[str, str]: A dictionary mapping PMIDs -> PMCIDs where full-text is available.
         """
         if not pmids:
             return {}
             
         logger.info(f"Fetching PMC links for {len(pmids)} PMIDs in batch...")
-        pmid_to_pmcid = {}
+        pmid_to_pmcid: Dict[str, str] = {}
         
         try:
             link_handle = Entrez.elink(dbfrom="pubmed", db="pmc", id=pmids)
@@ -98,10 +119,10 @@ class NCBIClient:
             link_handle.close()
             
             for result in link_results:
-                pmid = result.get("IdList", [])
-                if not pmid:
+                pmid_list = result.get("IdList", [])
+                if not pmid_list:
                     continue
-                pmid = pmid[0]
+                pmid = pmid_list[0]
                 
                 link_sets = result.get("LinkSetDb", [])
                 if not link_sets:
@@ -126,12 +147,20 @@ class NCBIClient:
             return {}
 
     def fetch_full_text(self, pmcid: str) -> str:
-        """Fetches full text XML from PMC using PMCID."""
+        """
+        Fetches full-text XML directly from PubMed Central using its PMCID.
+
+        Args:
+            pmcid (str): The PMC ID.
+
+        Returns:
+            str: The raw, unparsed XML text of the article's body. Returns empty string if failed.
+        """
         try:
             logger.debug(f"Fetching XML for PMCID: {pmcid}")
             fetch_handle = Entrez.efetch(
                 db="pmc", id=pmcid, rettype="xml", retmode="text")
-            raw_xml = fetch_handle.read()
+            raw_xml: str = fetch_handle.read()
             fetch_handle.close()
 
             return raw_xml
@@ -144,7 +173,13 @@ class NCBIClient:
 
     def get_total_hits(self, query: str) -> int:
         """
-        Return total number of PubMed hits for a query.
+        Returns the total number of PubMed hits available for a specific query without downloading files.
+
+        Args:
+            query (str): The target biomedical query.
+
+        Returns:
+            int: Total integer hits.
         """
         try:
             handle = Entrez.esearch(
@@ -160,5 +195,5 @@ class NCBIClient:
             return 0
 
 
-# Singleton for easy access
+# Singleton for easy access across the application
 ncbi_client = NCBIClient()

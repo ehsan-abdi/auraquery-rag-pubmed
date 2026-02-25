@@ -28,7 +28,7 @@ def main():
     
     try:
         # Run the full RAG pipeline (Parse -> Retrieve -> Format -> Generate)
-        answer = qa_chain.query(user_query)
+        answer, strategy = qa_chain.query(user_query)
         
         print("\n🤖 ANSWER:\n")
         print(answer)

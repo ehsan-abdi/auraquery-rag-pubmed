@@ -2,49 +2,17 @@ import logging
 from typing import Optional, List
 import warnings
 
-from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.utils.config import settings
+from app.models.schemas import MetadataFilters, ParsedQuery
 
 # Suppress harmless Pydantic serialization warnings caused by OpenAI's structured output
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 logger = logging.getLogger(__name__)
 
-# -----------------------------------------------------------------------
-# Models
-# -----------------------------------------------------------------------
-class MetadataFilters(BaseModel):
-    """Explicitly defined extractable metadata filters."""
-    publication_year: Optional[int] = Field(
-        default=None, 
-        description="The specific 4-digit year. Do NOT guess or infer the year if the user says 'recent' or 'latest'."
-    )
-    first_author_lastname: Optional[str] = Field(
-        default=None, 
-        description="The last name of the author. If the user asks for papers by a specific name (e.g. 'Prof Shovlin' or 'author Smith'), extract the last name (e.g. 'Shovlin' or 'Smith')."
-    )
-    journal_name: Optional[str] = Field(default=None)
-    mesh_major_terms: Optional[List[str]] = Field(default=None)
-    is_human: Optional[bool] = Field(default=None)
-    is_animal: Optional[bool] = Field(default=None)
-
-class ParsedQuery(BaseModel):
-    """The structured output format enforced by the LLM."""
-    clarification_required: Optional[str] = Field(
-        default=None,
-        description="Populate only if the query is critically ambiguous. Explicitly name the ambiguous term and offer interpretations. If NO critical ambiguity exists, this field MUST be null."
-    )
-    optimized_query: Optional[str] = Field(
-        default=None,
-        description="The expanded hybrid BM25 query (max 120 words). Populate ONLY if clarification is NOT required."
-    )
-    metadata_filters: Optional[MetadataFilters] = Field(
-        default=None,
-        description="Extracted metadata filters. Do not hallucinate fields."
-    )
 
 # -----------------------------------------------------------------------
 # System Prompt
@@ -119,6 +87,13 @@ class QueryParser:
     """
 
     def __init__(self, model_name: str = "gpt-4o-mini", medical_subject: str = "Hereditary Hemorrhagic Telangiectasia (HHT)"):
+        """
+        Initializes the QueryParser with a specific LLM and focus subject.
+
+        Args:
+            model_name (str, optional): The OpenAI model to use. Defaults to "gpt-4o-mini".
+            medical_subject (str, optional): The specific medical domain to optimize for. Defaults to "Hereditary Hemorrhagic Telangiectasia (HHT)".
+        """
         self.medical_subject = medical_subject
         # Initialize the LLM and bind it to our strict Pydantic output schema
         self.llm = ChatOpenAI(
@@ -136,10 +111,19 @@ class QueryParser:
         self.chain = self.prompt_template | self.llm
 
     def parse(self, query: str) -> ParsedQuery:
-        """Runs the query parser chain."""
+        """
+        Runs the query parser chain to convert a raw query string into a structured ParsedQuery object.
+
+        Args:
+            query (str): The raw input query from the user.
+
+        Returns:
+            ParsedQuery: A structured Pydantic object containing the optimized query natively 
+            coupled with any unambiguously requested metadata filters, or clarification prompts if needed.
+        """
         logger.info(f"Parsing raw query: '{query}'")
         try:
-            result = self.chain.invoke({
+            result: ParsedQuery = self.chain.invoke({
                 "medical_subject": self.medical_subject,
                 "query": query
             })
