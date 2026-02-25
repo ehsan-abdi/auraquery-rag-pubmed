@@ -4,11 +4,13 @@ AuraQuery is an advanced, production-grade Conversational Retrieval-Augmented Ge
 
 Instead of relying on general-purpose search, AuraQuery implements a **Four-Stage Hybrid Retrieval Pipeline** backed by sophisticated LLM query optimization and custom citation generation, guaranteeing highly accurate, evidence-based answers with zero hallucination.
 
+The system is built with a decoupled architecture featuring a Python/FastAPI backend and a modern Angular frontend, optimized for scalable deployment on Google Cloud Platform (GCP).
+
 ---
 
 ## 🏗️ End-to-End Architecture
 
-AuraQuery's architecture is decoupled into five distinct operational stages:
+AuraQuery's architecture is decoupled into distinct operational stages spanning data ingestion, retrieval, and conversation management:
 
 ### 1. Data Ingestion & Preprocessing
 The ingestion pipeline automates the downloading and initial structuring of academic papers.
@@ -35,15 +37,34 @@ The retrieval process is hyper-tuned for clinical accuracy and diversity. It is 
 5.  **Stage 4 - Diversity Filtering**: Caps the number of chunks pulled from any single paper so a single comprehensive review article doesn't drown out novel primary research.
 
 ### 5. Chat Engine & Response Generation
-*   **`AuraChatEngine`**: Maintains isolated conversational memories. It intercepts conversational follow-ups and explicitly resolves pronouns and historical PMIDs into standalone search queries.
-*   **`AuraQAChain`**: Assembles the curated chunks into a strictly formatted prompt. Forces the LLM to output professional clinical answers and enforces **in-line Harvard-style citations** mapped directly to the original PMIDs. If no evidence is found, it triggers a global fallback search on Index B before admitting defeat.
+*   **`AuraChatEngine` & Chat History LLM**: Maintains isolated conversational memories. It intercepts conversational follow-ups and explicitly resolves pronouns and historical context (e.g., "What were the side effects of that drug?") into fully standalone search queries using a dedicated **Reformulator LLM**. This ensures the retrieval pipeline never loses context.
+*   **`AuraQAChain`**: Assembles the curated chunks into a strictly formatted prompt. Forces the generation LLM to output professional clinical answers and enforces **in-line Harvard-style citations** mapped directly to the original PMIDs. If no evidence is found, it triggers a global fallback search on Index B before admitting defeat.
+
+---
+
+## 💻 System Implementation (Frontend & Backend)
+
+### Backend (FastAPI + Google Cloud Run)
+The retrieval architecture detailed above is wrapped in a high-performance **FastAPI** (`app/main.py`) application. It exposes the Chat Engine via REST endpoints, designed to be containerized using the provided `Dockerfile` and deployed seamlessly to **Google Cloud Run** for serverless auto-scaling and high availability. 
+
+### Frontend (Angular + Firebase Hosting)
+The user interface is built as a single-page application using **Angular** (located in the `frontend/` directory). It connects dynamically to the FastAPI backend, implementing modern UI paradigms to handle chat flows, streaming citations, and historical sessions. The frontend is built and deployed directly to **Firebase Hosting** for optimized global asset delivery.
+
+---
+
+## 📊 System Evaluation (LLM-as-a-Judge)
+
+A rigorous automated evaluation suite is implemented to quantitatively validate the RAG pipeline's accuracy, relevancy, and hallucination rates before pushing updates to production.
+
+*   **Ground Truth Dataset**: Queries are tested against `data/ground_truth_test_set.json`, an established corpus of highly complex biomedical questions coupled with verified citations and answers.
+*   **LLM-as-a-Judge (`scripts/run_evaluation.py`)**: A powerful LLM acts as an impartial adjudicator (`gpt-4o`). It scores the pipeline's end-to-end outputs across isolated dimensions (e.g., *Context Relevancy, Citation Accuracy, Answer Correctness*) eliminating subjective human-bias from evaluation cycles. Results are compiled and audited continuously into `evaluation_results.csv`.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-*   Python 3.10+
+*   Python 3.10+ & Node.js 18+
 *   OpenAI API Key
 *   NCBI Entrez API Key & Email
 *   Qdrant Cloud URL & API Key
@@ -51,13 +72,19 @@ The retrieval process is hyper-tuned for clinical accuracy and diversity. It is 
 Set these in a `.env` file at the root of the project.
 
 ### Running the API
-AuraQuery serves a FastAPI backend for frontend integration (e.g., Angular dashboards).
 ```bash
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+### Running the Frontend
+```bash
+cd frontend
+npm install
+npm run start
+```
+
 ### Running the CLI Engine
-You can interface directly with the conversation engine via the terminal:
+You can interface directly with the conversation engine via the terminal without spinning up the frontend:
 
 **Interactive Chat Session:**
 ```bash
@@ -84,14 +111,15 @@ AuraQuery/
 ├── app/
 │   ├── main.py                # FastAPI Application Entry
 │   ├── api/                   # REST API Endpoints
-│   ├── core/                  # Core RAG Logic (Retrieval, Parsing, Chat)
+│   ├── core/                  # Core RAG Logic (Retrieval, Parsing, Chat Engine)
 │   ├── db/                    # Vector Store and NCBI wrappers
 │   ├── models/                # Pydantic Schemas
 │   └── utils/                 # Config & Helpers
-├── scripts/                   # CLI Tools for Search & Ingestion
-├── tests/                     # Automated testing suite
-├── Dockerfile
-└── requirements.txt
+├── frontend/                  # Angular Web Application
+├── scripts/                   # CLI Tools for Search, Ingestion & Evaluation
+├── data/                      # Ground truth evaluation datasets
+├── Dockerfile                 # Backend Containerization
+└── requirements.txt           # Python Dependencies
 ```
 
 ---
