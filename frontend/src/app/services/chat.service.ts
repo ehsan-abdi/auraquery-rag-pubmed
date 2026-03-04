@@ -6,7 +6,7 @@ export interface ChatRequest {
 }
 
 export interface StreamEvent {
-    type: 'status' | 'token';
+    type: 'status' | 'token' | 'clear_tokens';
     message?: string;
     content?: string;
 }
@@ -16,7 +16,8 @@ export interface StreamEvent {
 })
 export class ChatService {
     // Hardcoded for local RAG execution; move to environment.ts for production
-    private apiUrl = 'https://auraquery-api-79181789355.us-central1.run.app/api';
+    // private apiUrl = 'https://auraquery-api-79181789355.us-central1.run.app/api';
+    private apiUrl = 'http://127.0.0.1:8000/api';
 
     async *streamMessage(query: string, sessionId: string): AsyncGenerator<StreamEvent, void, unknown> {
         const payload: ChatRequest = { query, session_id: sessionId };

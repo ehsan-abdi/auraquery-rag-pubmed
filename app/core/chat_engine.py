@@ -113,7 +113,7 @@ class AuraChatEngine:
         if session_id not in self.sessions:
             self.sessions[session_id] = []
             
-        yield json.dumps({"type": "status", "message": "🧠 Analyzing query context..."}) + "\n\n"
+        yield json.dumps({"type": "status", "message": "Analyzing query context..."}) + "\n\n"
         
         # 1. Reformulate
         standalone_query = self._reformulate_query(user_input, session_id)

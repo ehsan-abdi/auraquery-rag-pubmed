@@ -109,7 +109,19 @@ export class App implements AfterViewChecked {
       let accumulatedText = '';
 
       for await (const event of stream) {
-        if (event.type === 'status') {
+        if (event.type === 'clear_tokens') {
+          // Reset the text when a global fallback is triggered
+          accumulatedText = '';
+          this.messages.update(msgs => {
+            const newMsgs = [...msgs];
+            newMsgs[aiMessageIndex] = {
+              role: 'ai',
+              content: accumulatedText,
+              safeContent: this.sanitizer.bypassSecurityTrustHtml('')
+            };
+            return newMsgs;
+          });
+        } else if (event.type === 'status') {
           this.thinkingStatus.set(event.message || 'Processing...');
           this.scrollToBottom();
         } else if (event.type === 'token') {

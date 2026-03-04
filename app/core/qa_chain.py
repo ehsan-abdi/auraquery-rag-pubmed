@@ -1,5 +1,6 @@
 import logging
 import json
+import time
 from typing import List, Tuple
 
 from langchain_openai import ChatOpenAI
@@ -102,7 +103,7 @@ class AuraQAChain:
         """Executes the full RAG pipeline and yields SSE json chunks."""
         logger.info(f"Executing Streaming End-to-End RAG for query: {raw_query}")
         
-        yield json.dumps({"type": "status", "message": "🔍 Scanning PubMed abstracts..."}) + "\n\n"
+        yield json.dumps({"type": "status", "message": "Scanning PubMed abstracts..."}) + "\n\n"
         docs = self.retriever.retrieve(raw_query)
         
         if not docs:
@@ -115,26 +116,45 @@ class AuraQAChain:
             return
             
         # 3. Format the Context block and Generate Initial Answer
-        yield json.dumps({"type": "status", "message": f"📑 Extracting {len(docs)} relevant body paragraphs..."}) + "\n\n"
+        yield json.dumps({"type": "status", "message": f"Extracting {len(docs)} relevant body paragraphs..."}) + "\n\n"
+        
+        # Add visual pacing so the message doesn't flash for 1 millisecond
+        time.sleep(1.2)
+        
         formatted_context = self._format_docs(docs)
         logger.info(f"Context compiled. Sending {len(docs)} chunks to LLM payload.")
         
-        yield json.dumps({"type": "status", "message": "✍️ Synthesizing clinical evidence..."}) + "\n\n"
+        yield json.dumps({"type": "status", "message": "Synthesizing clinical evidence..."}) + "\n\n"
         chain = self.prompt_template | self.llm
         
         full_answer = ""
+        buffer = ""
+        is_fallback = False
+        
         for chunk in chain.stream({
             "context": formatted_context,
             "question": raw_query
         }):
-            full_answer += chunk.content
-            yield json.dumps({"type": "token", "content": chunk.content}) + "\n\n"
+            content = chunk.content
+            full_answer += content
+            
+            # Buffer the beginning of the response to catch the fallback phrase
+            if not is_fallback and len(full_answer) < 50:
+                buffer += content
+                if "I couldn't find sufficient evidence" in full_answer:
+                    is_fallback = True
+                    break
+            else:
+                # Once we pass the buffer threshold, flush the buffer and new content
+                if buffer:
+                    yield json.dumps({"type": "token", "content": buffer}) + "\n\n"
+                    buffer = ""
+                yield json.dumps({"type": "token", "content": content}) + "\n\n"
             
         # 4. Fallback Trigger
-        if "I couldn't find sufficient evidence" in full_answer:
+        if is_fallback:
             logger.warning("LLM reported insufficient evidence from Stage 1 Abstracts. Triggering Global Index B Fallback Search.")
-            yield json.dumps({"type": "status", "message": "🚨 Insufficient evidence found. Triggering Global Fallback Search..."}) + "\n\n"
-            yield json.dumps({"type": "token", "content": "\n\n*Execute Global Fallback Search...*\n\n"}) + "\n\n"
+            yield json.dumps({"type": "status", "message": "Performing a more extensive search..."}) + "\n\n"
             
             fallback_docs = self.retriever.retrieve(raw_query, bypass_stage_1=True)
             if fallback_docs:

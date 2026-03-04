@@ -27,14 +27,16 @@
     <div class="chat-history" #scrollContainer>
 
       @for (msg of messages(); track $index) {
-      <div class="message-wrapper" [class.user]="msg.role === 'user'" [class.ai]="msg.role === 'ai'">
+      <div class="message-wrapper" [class.user]="msg.role === 'user'" [class.ai]="msg.role === 'ai'"
+        [class.hidden-msg]="msg.role === 'ai' && !msg.content">
 
-        @if (msg.role === 'ai') {
+        @if (msg.role === 'ai' && msg.content) {
         <div class="avatar ai-avatar">
           <img src="favicon.ico" alt="Dr. Aura" class="avatar-icon">
         </div>
         }
 
+        @if (msg.content) {
         <div class="message-bubble mat-elevation-z1">
           @if (msg.role === 'user') {
           {{ msg.content }}
@@ -46,6 +48,7 @@
           }
           }
         </div>
+        }
 
       </div>
       }
