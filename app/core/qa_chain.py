@@ -103,9 +103,28 @@ class AuraQAChain:
         """Executes the full RAG pipeline and yields SSE json chunks."""
         logger.info(f"Executing Streaming End-to-End RAG for query: {raw_query}")
         
-        yield json.dumps({"type": "status", "message": "Scanning PubMed abstracts..."}) + "\n\n"
-        docs = self.retriever.retrieve(raw_query)
+        docs = []
+        is_early_fallback = False
         
+        for event in self.retriever.stream_retrieve(raw_query):
+            if event["type"] == "status":
+                yield json.dumps({"type": "status", "message": event["message"]}) + "\n\n"
+            elif event["type"] == "fallback_trigger":
+                is_early_fallback = True
+            elif event["type"] == "result":
+                docs = event["docs"]
+                
+        # If early fallback is triggered because Index A returned 0 candidates
+        if is_early_fallback:
+            logger.warning("Early fallback triggered. Bypassing Stage 1.")
+            fallback_docs = []
+            for event in self.retriever.stream_retrieve(raw_query, bypass_stage_1=True):
+                if event["type"] == "status":
+                    yield json.dumps({"type": "status", "message": event["message"]}) + "\n\n"
+                elif event["type"] == "result":
+                    fallback_docs = event["docs"]
+            docs = fallback_docs
+
         if not docs:
             yield json.dumps({"type": "token", "content": "No relevant literature could be found to answer this query."}) + "\n\n"
             return
@@ -116,11 +135,6 @@ class AuraQAChain:
             return
             
         # 3. Format the Context block and Generate Initial Answer
-        yield json.dumps({"type": "status", "message": f"Extracting {len(docs)} relevant body paragraphs..."}) + "\n\n"
-        
-        # Add visual pacing so the message doesn't flash for 1 millisecond
-        time.sleep(1.2)
-        
         formatted_context = self._format_docs(docs)
         logger.info(f"Context compiled. Sending {len(docs)} chunks to LLM payload.")
         
@@ -151,15 +165,24 @@ class AuraQAChain:
                     buffer = ""
                 yield json.dumps({"type": "token", "content": content}) + "\n\n"
             
-        # 4. Fallback Trigger
-        if is_fallback:
+        # 4. Fallback Trigger (if LLM decided context was insufficient)
+        if is_fallback and not is_early_fallback:
             logger.warning("LLM reported insufficient evidence from Stage 1 Abstracts. Triggering Global Index B Fallback Search.")
-            yield json.dumps({"type": "status", "message": "Performing a more extensive search..."}) + "\n\n"
             
-            fallback_docs = self.retriever.retrieve(raw_query, bypass_stage_1=True)
+            fallback_docs = []
+            for event in self.retriever.stream_retrieve(raw_query, bypass_stage_1=True):
+                if event["type"] == "status":
+                    yield json.dumps({"type": "status", "message": event["message"]}) + "\n\n"
+                elif event["type"] == "result":
+                    fallback_docs = event["docs"]
+                    
             if fallback_docs:
                 logger.info(f"Fallback retrieved {len(fallback_docs)} chunks from Index B. Re-prompting LLM.")
                 fallback_context = self._format_docs(fallback_docs)
+                
+                # Yield Synthesizing clinical evidence again before generating fallback answer
+                yield json.dumps({"type": "status", "message": "Synthesizing clinical evidence..."}) + "\n\n"
+                
                 for chunk in chain.stream({
                     "context": fallback_context,
                     "question": raw_query

@@ -102,6 +102,65 @@ class AuraRetriever:
         logger.info(f"Retrieval complete. Yielding {len(final_chunks)} perfectly curated chunks.")
         return final_chunks
 
+    def stream_retrieve(self, raw_query: str, bypass_stage_1: bool = False):
+        """Streaming generator version of retrieve that yields status updates and returns docs."""
+        logger.info(f"Starting stream retrieval pipeline for query: '{raw_query}' (Bypass Stage 1: {bypass_stage_1})")
+        
+        parsed_query = self.query_parser.parse(raw_query)
+        
+        if parsed_query.clarification_required:
+            logger.warning(f"Ambiguous query detected: {parsed_query.clarification_required}")
+            yield {"type": "result", "docs": [Document(
+                page_content=f"System Alert: Do not answer the user's question. Instead, ask them this clarification: {parsed_query.clarification_required}",
+                metadata={"type": "clarification"}
+            )]}
+            return
+            
+        search_term = parsed_query.optimized_query or raw_query
+        extracted_pmids = re.findall(r'PMID:?\s*(\d{7,8})', raw_query, re.IGNORECASE)
+        
+        if bypass_stage_1:
+            logger.info("Bypassing Stage 1: Executing Global Fallback Search on Index B.")
+            yield {"type": "status", "message": "Performing more extensive research..."}
+            raw_chunks = self._stage_2_global_chunk_search(search_term, parsed_query)
+            final_chunks = [doc for doc, _ in raw_chunks][:self.target_return_size]
+            yield {"type": "result", "docs": final_chunks}
+            return
+            
+        elif extracted_pmids:
+            logger.info(f"Explicit PMIDs detected in query: {extracted_pmids}. Bypassing Stage 1.")
+            candidate_pmids = list(set(extracted_pmids))
+            yield {"type": "status", "message": f"{len(candidate_pmids)} Relevant articles found..."}
+            raw_chunks = self._stage_2_chunk_search(search_term, candidate_pmids)
+        else:
+            # 2. Stage 1: Candidate Article Retrieval (Index A)
+            yield {"type": "status", "message": "Scanning PubMed abstracts..."}
+            candidate_pmids = self._stage_1_abstract_search(search_term, parsed_query)
+            if not candidate_pmids:
+                logger.warning("No candidate abstracts found. Yielding fallback trigger.")
+                yield {"type": "fallback_trigger"}
+                yield {"type": "result", "docs": []}
+                return
+                
+            # 3. Stage 2: Chunk-Level Retrieval (Index B) Restricted to Candidates
+            yield {"type": "status", "message": f"{len(candidate_pmids)} Relevant articles found..."}
+            raw_chunks = self._stage_2_chunk_search(search_term, candidate_pmids)
+            
+        if not raw_chunks:
+            logger.warning("No body chunks found for query. Yielding fallback trigger.")
+            yield {"type": "fallback_trigger"}
+            yield {"type": "result", "docs": []}
+            return
+            
+        # 4. Stage 3: Metadata-Aware Reranking
+        reranked_chunks = self._stage_3_rerank(raw_chunks, parsed_query)
+        
+        # 5. Stage 4: Diversity Filtering
+        final_chunks = self._stage_4_diversity_filter(reranked_chunks)
+        
+        logger.info(f"Stream Retrieval complete. Yielding {len(final_chunks)} perfectly curated chunks.")
+        yield {"type": "result", "docs": final_chunks}
+
     def _build_qdrant_filter(self, parsed_query: ParsedQuery) -> Any:
         """
         Translates the Pydantic MetadataFilters into a Qdrant-compliant models.Filter object.
