@@ -26,12 +26,11 @@ CRITICAL RULES:
    - You MUST include the PMID in EVERY citation.
    - Format: (First Author Last Name, Year) [PMID: XXXXXX]
 
-3. MAXIMIZE ARTICLE DIVERSITY (ANTI-LAZINESS PROTOCOL)
-   - Do NOT act like a lazy summarizer. 
-   - DO NOT just find one good summary/review article and cite it 10 times.
-   - You are being provided with text chunks from MANY distinct articles. You MUST prove you read them all.
-   - You MUST actively synthesize facts from at least 5 to 6 DIFFERENT articles in your response. 
-   - Every paragraph should ideally weave together 2 or 3 distinct citations from different authors to form a complete picture.
+3. CONTEXT RANKING & COMPREHENSIVE SYNTHESIS
+   - The provided articles are ordered by RELEVANCE (Article 1 is the most highly ranked match to the user's query).
+   - You should prioritize information from higher-ranked articles, but actively synthesize relevant facts from as many distinct articles as possible to build a holistic, comprehensive answer.
+   - DO NOT force citations from irrelevant articles just to increase citation count. Accuracy is paramount.
+   - However, if multiple articles provide relevant, accurate nuances, you MUST synthesize and cite them all rather than relying solely on the first article you read.
 
 4. TONE: Professional, clinical, and objective. 
 
@@ -46,7 +45,7 @@ class AuraQAChain:
     and passes it to the LLM to generate a cited response.
     """
 
-    def __init__(self, model_name: str = "gpt-4o"):
+    def __init__(self, model_name: str = "gpt-4o-mini"):
         self.retriever = AuraRetriever()
         
         # We use a standard generation model here, not structured output.
@@ -202,19 +201,28 @@ class AuraQAChain:
 
     def _format_docs(self, docs: List[Document]) -> str:
         """Helper to inject cleanly formatted texts and metadata into the LLM prompt.
-        Groups chunks by PMID so the LLM clearly sees distinct articles."""
-        from collections import defaultdict
+        Groups chunks by PMID so the LLM clearly sees distinct articles,
+        while strictly maintaining the original relevance ranking order."""
         
-        # Group documents by their PMID
-        grouped_docs = defaultdict(list)
-        for doc in docs:
+        # Group documents by their PMID and track their best mathematical rank
+        grouped_docs = {}
+        for idx, doc in enumerate(docs):
             pmid = doc.metadata.get("pmid", "Unknown")
-            grouped_docs[pmid].append(doc)
+            if pmid not in grouped_docs:
+                grouped_docs[pmid] = {
+                    "chunks": [],
+                    "best_rank": idx
+                }
+            grouped_docs[pmid]["chunks"].append(doc)
+            
+        # Sort PMIDs by their best rank to maintain overall relevance order
+        sorted_pmids = sorted(grouped_docs.keys(), key=lambda p: grouped_docs[p]["best_rank"])
             
         formatted_strings = []
         article_counter = 1
         
-        for pmid, chunks in grouped_docs.items():
+        for pmid in sorted_pmids:
+            chunks = grouped_docs[pmid]["chunks"]
             # Grab metadata from the first chunk of this article
             meta = chunks[0].metadata
             year = meta.get("pub_year", meta.get("publication_year"))
