@@ -22,12 +22,18 @@ You must answer the user's question accurately, directly, and comprehensively ba
 
 CRITICAL RULES:
 1. NO HALLUCINATION: If the context does not contain the answer, state clearly: "I couldn't find sufficient evidence in the literature to answer this question." Do not attempt to guess or use outside knowledge.
-2. CITATIONS REQUIRED: Every distinct medical claim, statistic, or observation MUST be cited in-line using the exact metadata provided in each chunk's header.
-   - You MUST include the PMID in every citation.
-   - Use Harvard style format WITH the PMID: (First Author Last Name, Year) [PMID: XXXXXX] or just [PMID: XXXXXX] if author/year data is missing.
-   - Example: "Bevacizumab drastically reduces epistaxis severity (Smith, 2022) [PMID: 123456]."
-3. COMPREHENSIVE SYNTHESIS: You will be provided with multiple text chunks from diverse articles. You MUST synthesize information from MULTIPLE sources to provide a well-rounded and comprehensive answer. Do not just summarize the first article you see.
-4. TONE: Professional, clinical, and objective. Avoid conversational filler (e.g., "Sure, I can help with that").
+2. CITATION DENSITY (CRITICAL): Every distinct medical claim, statistic, mutation, or observation MUST be cited in-line using the exact metadata provided in each chunk's header.
+   - You MUST include the PMID in EVERY citation.
+   - Format: (First Author Last Name, Year) [PMID: XXXXXX]
+
+3. MAXIMIZE ARTICLE DIVERSITY (ANTI-LAZINESS PROTOCOL)
+   - Do NOT act like a lazy summarizer. 
+   - DO NOT just find one good summary/review article and cite it 10 times.
+   - You are being provided with text chunks from MANY distinct articles. You MUST prove you read them all.
+   - You MUST actively synthesize facts from at least 5 to 6 DIFFERENT articles in your response. 
+   - Every paragraph should ideally weave together 2 or 3 distinct citations from different authors to form a complete picture.
+
+4. TONE: Professional, clinical, and objective. 
 
 CONTEXT PROVIDED:
 {context}
@@ -40,7 +46,7 @@ class AuraQAChain:
     and passes it to the LLM to generate a cited response.
     """
 
-    def __init__(self, model_name: str = "gpt-4o-mini"):
+    def __init__(self, model_name: str = "gpt-4o"):
         self.retriever = AuraRetriever()
         
         # We use a standard generation model here, not structured output.
@@ -79,6 +85,9 @@ class AuraQAChain:
         })
         answer = response.content
         
+        # Standardization
+        answer = self._standardize_citations(answer)
+        
         # 4. Fallback Trigger: If the LLM explicitly states it couldn't find evidence,
         # we bypass Stage 1 (Abstract Top-N) and force a deep global search on Index B.
         if "I couldn't find sufficient evidence" in answer:
@@ -92,7 +101,7 @@ class AuraQAChain:
                     "context": fallback_context,
                     "question": raw_query
                 })
-                return fallback_response.content, "Bypassed Index A"
+                return self._standardize_citations(fallback_response.content), "Bypassed Index A"
             else:
                 logger.warning("Fallback global search yielded no results either.")
                 return answer, "Index A -> Index B"
@@ -192,25 +201,69 @@ class AuraQAChain:
                 logger.warning("Fallback global search yielded no results either.")
 
     def _format_docs(self, docs: List[Document]) -> str:
-        """Helper to inject cleanly formatted texts and metadata into the LLM prompt."""
+        """Helper to inject cleanly formatted texts and metadata into the LLM prompt.
+        Groups chunks by PMID so the LLM clearly sees distinct articles."""
+        from collections import defaultdict
+        
+        # Group documents by their PMID
+        grouped_docs = defaultdict(list)
+        for doc in docs:
+            pmid = doc.metadata.get("pmid", "Unknown")
+            grouped_docs[pmid].append(doc)
+            
         formatted_strings = []
-        for i, doc in enumerate(docs, 1):
-            meta = doc.metadata
-            pmid = meta.get("pmid", "Unknown")
+        article_counter = 1
+        
+        for pmid, chunks in grouped_docs.items():
+            # Grab metadata from the first chunk of this article
+            meta = chunks[0].metadata
             year = meta.get("pub_year", meta.get("publication_year"))
             author = meta.get("first_author_lastname")
             
             # Smart citation assembly
             if author and year and author != "Unknown" and year != "Unknown":
-                citation_header = f"[{i}] ({author}, {year}) [PMID: {pmid}]"
+                citation_header = f"--- ARTICLE {article_counter}: ({author}, {year}) [PMID: {pmid}] ---"
             elif author and author != "Unknown":
-                citation_header = f"[{i}] ({author}) [PMID: {pmid}]"
+                citation_header = f"--- ARTICLE {article_counter}: ({author}) [PMID: {pmid}] ---"
             elif year and year != "Unknown":
-                citation_header = f"[{i}] ({year}) [PMID: {pmid}]"
+                citation_header = f"--- ARTICLE {article_counter}: ({year}) [PMID: {pmid}] ---"
             else:
-                 citation_header = f"[{i}] [PMID: {pmid}]"
+                citation_header = f"--- ARTICLE {article_counter}: [PMID: {pmid}] ---"
             
-            content = doc.page_content.strip()
-            formatted_strings.append(f"{citation_header}\nCONTENT: {content}\n")
+            # Combine all chunks for this article
+            combined_content = "\n...\n".join([chunk.page_content.strip() for chunk in chunks])
+            
+            formatted_strings.append(f"{citation_header}\n{combined_content}\n")
+            article_counter += 1
             
         return "\n".join(formatted_strings)
+
+    def _standardize_citations(self, text: str) -> str:
+        """
+        Forcefully normalizes rogue citation formats back to the strict `[PMID: XXXXXX]` 
+        expected by the Angular frontend parser.
+        Example mapping: 
+        `[Smith, 2021; PMID: 123456]` -> `(Smith, 2021) [PMID: 123456]`
+        `[PMID: 123, PMID: 456]` -> `[PMID: 123] [PMID: 456]`
+        """
+        import re
+        
+        # 1. Handle combined author/PMID brackets like [Author, Year; PMID: 123456]
+        # Extracts the author/year part and the PMID part, rewriting them.
+        pattern_author_combined = r'\[([^\]]*?);\s*PMID:\s*(\d+)\]'
+        text = re.sub(pattern_author_combined, r'(\1) [PMID: \2]', text)
+        
+        # 2. Handle multiple PMIDs in one bracket like [PMID: 123, 456, 789]
+        # This is complex to do purely in regex, so we use a replacement function
+        def explode_pmids(match):
+            inner_content = match.group(1)
+            # Find all numbers in the inner content
+            numbers = re.findall(r'\d+', inner_content)
+            if numbers:
+                return ' '.join([f'[PMID: {num}]' for num in numbers])
+            return match.group(0)
+            
+        pattern_multi_pmid = r'\[PMID:\s*([\d,\s]+)\]'
+        text = re.sub(pattern_multi_pmid, explode_pmids, text)
+        
+        return text
