@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import logging
 
@@ -17,17 +18,17 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
 
-@router.post("/chat", response_model=QueryResponse)
-def compute_chat_response(request: QueryRequest):
+@router.post("/chat")
+def stream_chat_response(request: QueryRequest):
     """
-    Core RAG Endpoint. Interacts with the ChatEngine to retrieve context
-    and generate a formatted markdown response, complete with citations.
+    Core RAG Endpoint returning Server-Sent Events (SSE).
     """
-    logger.info(f"API Request - Session: {request.session_id} | Query: {request.query}")
+    logger.info(f"API Request (Stream) - Session: {request.session_id} | Query: {request.query}")
     try:
-        # ChatEngine handles isolated session histories internally
-        answer = chat_engine.chat(request.query, session_id=request.session_id)
-        return QueryResponse(answer=answer)
+        return StreamingResponse(
+            chat_engine.stream_chat(request.query, session_id=request.session_id),
+            media_type="text/event-stream"
+        )
     except Exception as e:
         logger.error(f"Error processing chat request: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error processing query.")

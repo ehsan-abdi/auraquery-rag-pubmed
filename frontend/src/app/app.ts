@@ -43,6 +43,7 @@ export class App implements AfterViewChecked {
 
   userInput = '';
   isThinking = signal(false);
+  thinkingStatus = signal('');
   sessionId = 'aura_session_' + Math.random().toString(36).substring(7);
 
   constructor() {
@@ -86,40 +87,63 @@ export class App implements AfterViewChecked {
     this.sendMessage();
   }
 
-  sendMessage() {
+  async sendMessage() {
     if (!this.userInput.trim() || this.isThinking()) return;
 
     const query = this.userInput;
     this.messages.update(msgs => [...msgs, { role: 'user', content: query }]);
     this.userInput = '';
-    this.isThinking.set(true);
 
-    this.chatService.sendMessage(query, this.sessionId).subscribe({
-      next: (response) => {
-        this.messages.update(msgs => [
-          ...msgs,
-          {
-            role: 'ai',
-            content: response.answer,
-            safeContent: this.formatMarkdownAndCitations(response.answer)
-          }
-        ]);
-        this.isThinking.set(false);
-        setTimeout(() => this.chatInput?.nativeElement?.focus(), 50);
-      },
-      error: (err) => {
-        console.error(err);
-        this.messages.update(msgs => [
-          ...msgs,
-          {
-            role: 'ai',
-            content: 'Connection Error: Unable to reach the backend.',
-            safeContent: this.sanitizer.bypassSecurityTrustHtml('<strong>Connection Error:</strong> Unable to reach the backend.')
-          }
-        ]);
-        this.isThinking.set(false);
-        setTimeout(() => this.chatInput?.nativeElement?.focus(), 50);
+    this.isThinking.set(true);
+    this.thinkingStatus.set('Initializing...');
+
+    // Add empty AI message container for streaming
+    const aiMessageIndex = this.messages().length;
+    this.messages.update(msgs => [
+      ...msgs,
+      { role: 'ai', content: '', safeContent: this.sanitizer.bypassSecurityTrustHtml('') }
+    ]);
+
+    try {
+      const stream = this.chatService.streamMessage(query, this.sessionId);
+      let accumulatedText = '';
+
+      for await (const event of stream) {
+        if (event.type === 'status') {
+          this.thinkingStatus.set(event.message || 'Processing...');
+          this.scrollToBottom();
+        } else if (event.type === 'token') {
+          // First token arrived, hide the "thinking" bubble
+          this.thinkingStatus.set('');
+
+          accumulatedText += (event.content || '');
+          this.messages.update(msgs => {
+            const newMsgs = [...msgs];
+            newMsgs[aiMessageIndex] = {
+              role: 'ai',
+              content: accumulatedText,
+              safeContent: this.formatMarkdownAndCitations(accumulatedText)
+            };
+            return newMsgs;
+          });
+          this.scrollToBottom();
+        }
       }
-    });
+    } catch (err) {
+      console.error(err);
+      this.messages.update(msgs => {
+        const newMsgs = [...msgs];
+        newMsgs[aiMessageIndex] = {
+          role: 'ai',
+          content: 'Connection Error: Unable to reach the backend.',
+          safeContent: this.sanitizer.bypassSecurityTrustHtml('<strong>Connection Error:</strong> Unable to reach the backend.')
+        };
+        return newMsgs;
+      });
+    } finally {
+      this.isThinking.set(false);
+      this.thinkingStatus.set('');
+      setTimeout(() => this.chatInput?.nativeElement?.focus(), 50);
+    }
   }
 }

@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import List, Tuple
 
 from langchain_openai import ChatOpenAI
@@ -96,6 +97,56 @@ class AuraQAChain:
                 return answer, "Index A -> Index B"
                 
         return answer, "Index A -> Index B"
+
+    def stream_query(self, raw_query: str):
+        """Executes the full RAG pipeline and yields SSE json chunks."""
+        logger.info(f"Executing Streaming End-to-End RAG for query: {raw_query}")
+        
+        yield json.dumps({"type": "status", "message": "🔍 Scanning PubMed abstracts..."}) + "\n\n"
+        docs = self.retriever.retrieve(raw_query)
+        
+        if not docs:
+            yield json.dumps({"type": "token", "content": "No relevant literature could be found to answer this query."}) + "\n\n"
+            return
+            
+        # 2. Check if the Retriever bounced back a Clarification Request
+        if docs[0].metadata.get("type") == "clarification":
+            yield json.dumps({"type": "token", "content": docs[0].page_content.replace("System Alert: Do not answer the user's question. Instead, ask them this clarification: ", "")}) + "\n\n"
+            return
+            
+        # 3. Format the Context block and Generate Initial Answer
+        yield json.dumps({"type": "status", "message": f"📑 Extracting {len(docs)} relevant body paragraphs..."}) + "\n\n"
+        formatted_context = self._format_docs(docs)
+        logger.info(f"Context compiled. Sending {len(docs)} chunks to LLM payload.")
+        
+        yield json.dumps({"type": "status", "message": "✍️ Synthesizing clinical evidence..."}) + "\n\n"
+        chain = self.prompt_template | self.llm
+        
+        full_answer = ""
+        for chunk in chain.stream({
+            "context": formatted_context,
+            "question": raw_query
+        }):
+            full_answer += chunk.content
+            yield json.dumps({"type": "token", "content": chunk.content}) + "\n\n"
+            
+        # 4. Fallback Trigger
+        if "I couldn't find sufficient evidence" in full_answer:
+            logger.warning("LLM reported insufficient evidence from Stage 1 Abstracts. Triggering Global Index B Fallback Search.")
+            yield json.dumps({"type": "status", "message": "🚨 Insufficient evidence found. Triggering Global Fallback Search..."}) + "\n\n"
+            yield json.dumps({"type": "token", "content": "\n\n*Execute Global Fallback Search...*\n\n"}) + "\n\n"
+            
+            fallback_docs = self.retriever.retrieve(raw_query, bypass_stage_1=True)
+            if fallback_docs:
+                logger.info(f"Fallback retrieved {len(fallback_docs)} chunks from Index B. Re-prompting LLM.")
+                fallback_context = self._format_docs(fallback_docs)
+                for chunk in chain.stream({
+                    "context": fallback_context,
+                    "question": raw_query
+                }):
+                    yield json.dumps({"type": "token", "content": chunk.content}) + "\n\n"
+            else:
+                logger.warning("Fallback global search yielded no results either.")
 
     def _format_docs(self, docs: List[Document]) -> str:
         """Helper to inject cleanly formatted texts and metadata into the LLM prompt."""

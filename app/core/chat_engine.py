@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import List, Dict, Any
 
 from langchain_openai import ChatOpenAI
@@ -103,7 +104,42 @@ class AuraChatEngine:
             self.sessions[session_id] = self.sessions[session_id][-10:]
             
         return answer
+
+    def stream_chat(self, user_input: str, session_id: str = "default"):
+        """
+        Streaming version of the main interaction point for conversational RAG.
+        Yields SSE json strings and saves the final accumulated answer to history.
+        """
+        if session_id not in self.sessions:
+            self.sessions[session_id] = []
+            
+        yield json.dumps({"type": "status", "message": "🧠 Analyzing query context..."}) + "\n\n"
         
+        # 1. Reformulate
+        standalone_query = self._reformulate_query(user_input, session_id)
+        
+        # 2. Add human message to history AFTER reformulation
+        self.sessions[session_id].append(HumanMessage(content=user_input))
+        
+        # 3. Stream the full Phase 3 QA Chain (Parse -> Retrieve -> Generation)
+        full_answer = ""
+        for chunk_str in self.qa_chain.stream_query(standalone_query):
+            yield chunk_str
+            
+            try:
+                data = json.loads(chunk_str.strip())
+                if data.get("type") == "token":
+                    full_answer += data.get("content", "")
+            except json.JSONDecodeError:
+                pass
+                
+        # 4. Save AI response to history
+        self.sessions[session_id].append(AIMessage(content=full_answer))
+        
+        # Trim history to prevent context bloat
+        if len(self.sessions[session_id]) > 10: 
+            self.sessions[session_id] = self.sessions[session_id][-10:]
+                
     def clear_history(self, session_id: str = "default"):
         """Wipes the current session memory."""
         if session_id in self.sessions:

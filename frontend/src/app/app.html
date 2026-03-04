@@ -50,7 +50,7 @@
       </div>
       }
 
-      @if (isThinking()) {
+      @if (thinkingStatus()) {
       <div class="message-wrapper ai">
         <div class="avatar ai-avatar">
           <img src="favicon.ico" alt="Dr. Aura" class="avatar-icon">
@@ -59,7 +59,7 @@
           <div class="thinking-dots">
             <span></span><span></span><span></span>
           </div>
-          <span class="thinking-text">Dr. Aura is synthesizing literature...</span>
+          <span class="thinking-text">{{ thinkingStatus() }}</span>
         </div>
       </div>
       }
