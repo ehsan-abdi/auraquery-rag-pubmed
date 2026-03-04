@@ -130,7 +130,7 @@ class AuraRetriever:
         elif extracted_pmids:
             logger.info(f"Explicit PMIDs detected in query: {extracted_pmids}. Bypassing Stage 1.")
             candidate_pmids = list(set(extracted_pmids))
-            yield {"type": "status", "message": f"{len(candidate_pmids)} Relevant articles found..."}
+            yield {"type": "status", "message": "Retrieving the relevant articles..."}
             raw_chunks = self._stage_2_chunk_search(search_term, candidate_pmids)
         else:
             # 2. Stage 1: Candidate Article Retrieval (Index A)
@@ -143,7 +143,7 @@ class AuraRetriever:
                 return
                 
             # 3. Stage 2: Chunk-Level Retrieval (Index B) Restricted to Candidates
-            yield {"type": "status", "message": f"{len(candidate_pmids)} Relevant articles found..."}
+            yield {"type": "status", "message": "Retrieving the relevant articles..."}
             raw_chunks = self._stage_2_chunk_search(search_term, candidate_pmids)
             
         if not raw_chunks:
