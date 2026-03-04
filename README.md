@@ -38,7 +38,8 @@ The retrieval process is hyper-tuned for clinical accuracy and diversity. It is 
 
 ### 5. Chat Engine & Response Generation
 *   **`AuraChatEngine` & Chat History LLM**: Maintains isolated conversational memories. It intercepts conversational follow-ups and explicitly resolves pronouns and historical context (e.g., "What were the side effects of that drug?") into fully standalone search queries using a dedicated **Reformulator LLM**. This ensures the retrieval pipeline never loses context.
-*   **`AuraQAChain`**: Assembles the curated chunks into a strictly formatted prompt. Forces the generation LLM to output professional clinical answers and enforces **in-line Harvard-style citations** mapped directly to the original PMIDs. If no evidence is found, it triggers a global fallback search on Index B before admitting defeat.
+*   **`AuraQAChain`**: Assembles the curated chunks (grouped by PMID) into a strictly formatted prompt. Forces the generation LLM to output professional clinical answers and enforces **high-density in-line citations** mapped directly to the original PMIDs. If no evidence is found, it triggers a global fallback search on Index B before admitting defeat.
+*   **Real-Time Streaming**: The backend utilizes Server-Sent Events (SSE) to stream granular status updates (e.g., "Scanning PubMed abstracts...") followed immediately by the generative LLM token stream, ensuring an ultra-low latency, responsive user experience.
 
 ### 6. System Evaluation (LLM-as-a-Judge)
 A rigorous automated evaluation suite is implemented to quantitatively validate the RAG pipeline's accuracy, relevancy, and hallucination rates before pushing updates to production.
